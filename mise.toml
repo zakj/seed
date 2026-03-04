@@ -1,0 +1,23 @@
+[tools]
+rust = "latest"
+"github:crate-ci/cargo-release" = "latest"
+
+[tasks.lint]
+description = "Run cargo fmt check and clippy"
+run = "cargo fmt --check && cargo clippy -- -D warnings"
+
+[tasks.test]
+description = "Run tests"
+usage = 'flag "-q --quiet" help="Suppress per-test output"'
+run = """
+#!/usr/bin/env bash
+if [[ "${usage_quiet}" == "true" ]]; then
+  cargo nextest run --status-level=none --final-status-level=fail
+else
+  cargo nextest run
+fi
+"""
+
+[tasks.check]
+description = "Run lint and test (matches CI)"
+depends = ["lint", "test --quiet"]
