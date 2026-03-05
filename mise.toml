@@ -1,3 +1,6 @@
+[env]
+_.path = ["./target/debug"]
+
 [tools]
 rust = "latest"
 "github:crate-ci/cargo-release" = "latest"
