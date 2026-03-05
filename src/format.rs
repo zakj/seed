@@ -46,6 +46,8 @@ fn rule(width: usize) -> String {
 
 pub fn format_task_detail(
     task: &Task,
+    parent: Option<&Task>,
+    deps: &[Task],
     children: &[Task],
     resolved: &HashSet<u32>,
     terminal_width: Option<usize>,
@@ -79,36 +81,51 @@ pub fn format_task_detail(
     let title = format!("{BOLD}{}{RESET}", task.title);
     wrap_words(&title, &mut out, width, "", "");
 
-    // Heavy rule
-    out.push_str(&format!("{DIM}{}{RESET}\n", rule(width)));
-
-    // Metadata lines (only if present)
-    let mut meta: Vec<String> = Vec::new();
-    if let Some(parent) = task.parent {
-        meta.push(format!("{BOLD}Parent{RESET} #{parent}"));
-    }
-    if !task.depends.is_empty() {
-        let deps: Vec<String> = task.depends.iter().map(|d| format!("#{d}")).collect();
-        meta.push(format!("{BOLD}Depends on{RESET} {}", deps.join(", ")));
-    }
-    for label in &task.labels {
-        meta.push(label.clone());
-    }
-    if !meta.is_empty() {
+    // Heavy rule with optional right-aligned labels
+    if task.labels.is_empty() {
+        out.push_str(&format!("{DIM}{}{RESET}\n", rule(width)));
+    } else {
+        let labels = task.labels.join(&format!(" {SYM_DOT} "));
+        let right_width = 1 + visible_width(&labels) + 1 + 2; // space labels space ──
+        let fill = width.saturating_sub(right_width);
         out.push_str(&format!(
-            "{}\n",
-            meta.join(&format!(" {DIM}{SYM_DOT}{RESET} "))
+            "{DIM}{}{RESET} {labels} {DIM}{SYM_RULE}{SYM_RULE}{RESET}\n",
+            SYM_RULE.repeat(fill)
         ));
+    }
+
+    // Parent
+    if let Some(p) = parent {
+        out.push_str(&format!(
+            "{BOLD}Parent:{RESET} {}\n",
+            format_related(p, p.is_blocked(resolved))
+        ));
+    }
+
+    // Dependencies
+    if deps.len() == 1 {
+        let d = &deps[0];
+        out.push_str(&format!(
+            "{BOLD}Depends on:{RESET} {}\n",
+            format_related(d, d.is_blocked(resolved))
+        ));
+    } else if deps.len() > 1 {
+        out.push_str(&format!("{BOLD}Depends on:{RESET}\n"));
+        for d in deps {
+            out.push_str(&format!(
+                "  {}\n",
+                format_related(d, d.is_blocked(resolved))
+            ));
+        }
     }
 
     // Children
-    for child in children {
-        let blocked = child.is_blocked(resolved);
-        let style = indicator(child, blocked);
-        out.push_str(&format!(
-            "{}{}{RESET} #{} {}\n",
-            style.color, style.symbol, child.id, child.title
-        ));
+    if !children.is_empty() {
+        out.push_str(&format!("{BOLD}Children:{RESET}\n"));
+        for child in children {
+            let blocked = child.is_blocked(resolved);
+            out.push_str(&format!("  {}\n", format_related(child, blocked)));
+        }
     }
 
     // Description
@@ -139,6 +156,18 @@ fn indicator(task: &Task, blocked: bool) -> Style {
     match task.status {
         Status::Todo if !task.priority.is_default() => task.priority.style(),
         s => s.style(),
+    }
+}
+
+fn format_related(task: &Task, blocked: bool) -> String {
+    let style = indicator(task, blocked);
+    if style.symbol.trim().is_empty() {
+        format!("#{} {}", task.id, task.title)
+    } else {
+        format!(
+            "{}{}{RESET} #{} {}",
+            style.color, style.symbol, task.id, task.title
+        )
     }
 }
 

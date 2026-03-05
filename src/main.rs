@@ -347,6 +347,14 @@ fn cmd_show(cli: &Cli, id: u32, include_archived: bool) -> Result<(), Error> {
     task.depends.retain(|d| !done_ids.contains(d));
 
     let task_is_archived = !all_tasks.iter().any(|t| t.id == id);
+    let parent_task = task
+        .parent
+        .and_then(|pid| all_tasks.iter().find(|t| t.id == pid).cloned());
+    let dep_tasks: Vec<Task> = task
+        .depends
+        .iter()
+        .filter_map(|id| all_tasks.iter().find(|t| t.id == *id).cloned())
+        .collect();
     let mut children: Vec<Task> = all_tasks
         .into_iter()
         .filter(|t| t.parent == Some(id))
@@ -372,7 +380,14 @@ fn cmd_show(cli: &Cli, id: u32, include_archived: bool) -> Result<(), Error> {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
         print!(
             "{}",
-            format::format_task_detail(&task, &children, &done_ids, width)
+            format::format_task_detail(
+                &task,
+                parent_task.as_ref(),
+                &dep_tasks,
+                &children,
+                &done_ids,
+                width,
+            )
         );
     }
     Ok(())
