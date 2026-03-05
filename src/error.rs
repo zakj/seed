@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::task::Status;
+use crate::task::{Status, TaskId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -11,28 +11,28 @@ pub enum Error {
     AlreadyInitialized(PathBuf),
 
     #[error("task {0} not found")]
-    TaskNotFound(u32),
+    TaskNotFound(TaskId),
 
     #[error("task {0} is archived")]
-    TaskArchived(u32),
+    TaskArchived(TaskId),
 
     #[error("conflict: task {0} was modified by another process")]
-    Conflict(u32),
+    Conflict(TaskId),
 
     #[error("cycle detected: this would create a circular reference")]
     CycleDetected,
 
     #[error("unmet dependencies: tasks {0:?} are not done")]
-    UnmetDependencies(Vec<u32>),
+    UnmetDependencies(Vec<TaskId>),
 
     #[error("incomplete children: tasks {0:?} are not done")]
-    IncompleteChildren(Vec<u32>),
+    IncompleteChildren(Vec<TaskId>),
 
     #[error("cannot start task {0}: task is {1}")]
-    CannotStart(u32, Status),
+    CannotStart(TaskId, Status),
 
     #[error("cannot cancel task {0}: task is done")]
-    CannotCancel(u32),
+    CannotCancel(TaskId),
 
     #[error("invalid task file: {0}")]
     InvalidTaskFile(String),

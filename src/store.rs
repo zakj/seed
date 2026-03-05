@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use fs2::FileExt;
 
 use crate::error::Error;
-use crate::task::{Task, kdl_int};
+use crate::task::{Task, TaskId, kdl_int};
 
 pub struct Store {
     root: PathBuf,
@@ -51,7 +51,7 @@ impl Store {
         self.root.join("tasks")
     }
 
-    fn task_path(&self, id: u32) -> PathBuf {
+    fn task_path(&self, id: TaskId) -> PathBuf {
         self.tasks_dir().join(format!("{id}.kdl"))
     }
 
@@ -59,7 +59,7 @@ impl Store {
         self.root.join("archive")
     }
 
-    fn archive_path(&self, id: u32) -> PathBuf {
+    fn archive_path(&self, id: TaskId) -> PathBuf {
         self.archive_dir().join(format!("{id}.kdl"))
     }
 
@@ -68,7 +68,7 @@ impl Store {
     }
 
     /// Atomically allocate the next task ID under an exclusive file lock.
-    pub fn allocate_id(&self) -> Result<u32, Error> {
+    pub fn allocate_id(&self) -> Result<TaskId, Error> {
         let file = File::open(self.config_path())?;
         file.lock_exclusive()?;
         let _unlock = LockGuard(&file);
@@ -93,12 +93,12 @@ impl Store {
             .checked_add(1)
             .ok_or_else(|| Error::InvalidConfig("next-id overflow".into()))?;
         node.clear();
-        node.push(kdl_int(next));
+        node.push(kdl_int(TaskId::from(next)));
         atomic_write(&self.config_path(), &doc.to_string(), None)?;
-        Ok(id)
+        Ok(TaskId::from(id))
     }
 
-    pub fn read_task(&self, id: u32) -> Result<Task, Error> {
+    pub fn read_task(&self, id: TaskId) -> Result<Task, Error> {
         let path = self.task_path(id);
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
@@ -117,7 +117,7 @@ impl Store {
     /// Read a task along with its file's mtime for optimistic concurrency.
     /// Returns `TaskArchived` if the task only exists in the archive,
     /// since archived tasks cannot be written back to the tasks directory.
-    pub fn read_task_with_mtime(&self, id: u32) -> Result<(Task, SystemTime), Error> {
+    pub fn read_task_with_mtime(&self, id: TaskId) -> Result<(Task, SystemTime), Error> {
         let path = self.task_path(id);
         let mut file = match File::open(&path) {
             Ok(f) => f,
@@ -155,7 +155,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn archive_task(&self, id: u32) -> Result<(), Error> {
+    pub fn archive_task(&self, id: TaskId) -> Result<(), Error> {
         fs::rename(self.task_path(id), self.archive_path(id))?;
         Ok(())
     }
@@ -168,7 +168,7 @@ impl Store {
         Self::load_tasks_from(&self.archive_dir())
     }
 
-    pub fn load_archived_ids(&self) -> Result<HashSet<u32>, Error> {
+    pub fn load_archived_ids(&self) -> Result<HashSet<TaskId>, Error> {
         let entries = match fs::read_dir(self.archive_dir()) {
             Ok(rd) => rd.collect::<Result<Vec<_>, _>>()?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
@@ -176,7 +176,7 @@ impl Store {
         };
         Ok(entries
             .into_iter()
-            .filter_map(|e| e.path().file_stem()?.to_str()?.parse::<u32>().ok())
+            .filter_map(|e| e.path().file_stem()?.to_str()?.parse::<TaskId>().ok())
             .collect())
     }
 
@@ -208,7 +208,11 @@ impl Drop for LockGuard<'_> {
     }
 }
 
-fn atomic_write(path: &Path, content: &str, check: Option<(u32, SystemTime)>) -> Result<(), Error> {
+fn atomic_write(
+    path: &Path,
+    content: &str,
+    check: Option<(TaskId, SystemTime)>,
+) -> Result<(), Error> {
     let dir = path.parent().expect("task path has parent");
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("tmp");
     let tmp = dir.join(format!(".tmp.{}.{}", stem, std::process::id()));

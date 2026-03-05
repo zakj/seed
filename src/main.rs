@@ -15,7 +15,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 use error::Error;
 use store::Store;
-use task::{Priority, Status, Task, validate_dag, validate_deps_exist, validate_parent};
+use task::{Priority, Status, Task, TaskId, validate_dag, validate_deps_exist, validate_parent};
 
 #[derive(Parser)]
 #[command(
@@ -43,7 +43,7 @@ enum Command {
     /// Show task details
     Show {
         /// Task ID
-        id: u32,
+        id: TaskId,
 
         /// Include archived children
         #[arg(short = 'a', long)]
@@ -76,7 +76,7 @@ enum Command {
     /// Start a task (set status to in-progress)
     Start {
         /// Task ID
-        id: u32,
+        id: TaskId,
     },
 
     /// Mark a task as done
@@ -86,7 +86,7 @@ complete. Use --force to skip validation."
     )]
     Done {
         /// Task ID
-        id: u32,
+        id: TaskId,
 
         /// Force completion even with unmet dependencies or incomplete children
         #[arg(short, long)]
@@ -96,13 +96,13 @@ complete. Use --force to skip validation."
     /// Cancel a task
     Cancel {
         /// Task ID
-        id: u32,
+        id: TaskId,
     },
 
     /// Append a log entry to a task
     Log {
         /// Task ID
-        id: u32,
+        id: TaskId,
 
         /// Log message
         message: String,
@@ -157,11 +157,11 @@ struct AddArgs {
 
     /// Parent task ID
     #[arg(long)]
-    parent: Option<u32>,
+    parent: Option<TaskId>,
 
     /// Dependencies (task IDs)
     #[arg(long)]
-    dep: Vec<u32>,
+    dep: Vec<TaskId>,
 
     /// Description
     #[arg(short, long)]
@@ -175,7 +175,7 @@ struct AddArgs {
 #[derive(clap::Args)]
 struct EditArgs {
     /// Task ID
-    id: u32,
+    id: TaskId,
 
     #[command(flatten)]
     mods: EditModifications,
@@ -201,7 +201,7 @@ struct EditModifications {
 
     /// New parent task ID
     #[arg(long)]
-    parent: Option<u32>,
+    parent: Option<TaskId>,
 
     /// Remove parent
     #[arg(long, conflicts_with = "parent")]
@@ -217,11 +217,11 @@ struct EditModifications {
 
     /// Add a dependency
     #[arg(long)]
-    add_dep: Vec<u32>,
+    add_dep: Vec<TaskId>,
 
     /// Remove a dependency
     #[arg(long)]
-    rm_dep: Vec<u32>,
+    rm_dep: Vec<TaskId>,
 
     /// Force completion even with unmet dependencies or incomplete children
     #[arg(short, long, requires = "status")]
@@ -305,7 +305,7 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
 
     if args.parent.is_some() || !args.dep.is_empty() {
         let all_tasks = store.load_all_tasks()?;
-        let mut known_ids: HashSet<u32> = all_tasks.iter().map(|t| t.id).collect();
+        let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
         known_ids.extend(store.load_archived_ids()?);
 
         if let Some(parent) = args.parent {
@@ -331,13 +331,13 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_show(cli: &Cli, id: u32, include_archived: bool) -> Result<(), Error> {
+fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let mut task = store.read_task(id)?;
 
     let all_tasks = store.load_all_tasks()?;
-    let mut done_ids: HashSet<u32> = all_tasks
+    let mut done_ids: HashSet<TaskId> = all_tasks
         .iter()
         .filter(|t| t.status.is_resolved())
         .map(|t| t.id)
@@ -372,7 +372,7 @@ fn cmd_show(cli: &Cli, id: u32, include_archived: bool) -> Result<(), Error> {
     if cli.json {
         let mut value = serde_json::to_value(&task).unwrap();
         if !children.is_empty() {
-            let ids: Vec<u32> = children.iter().map(|c| c.id).collect();
+            let ids: Vec<TaskId> = children.iter().map(|c| c.id).collect();
             value["children"] = serde_json::to_value(ids).unwrap();
         }
         println!("{}", serde_json::to_string_pretty(&value).unwrap());
@@ -407,7 +407,7 @@ fn cmd_list(
         tasks.extend(store.load_archived_tasks()?);
         tasks.sort_by_key(|t| t.id);
     }
-    let mut done_ids: HashSet<u32> = tasks
+    let mut done_ids: HashSet<TaskId> = tasks
         .iter()
         .filter(|t| t.status.is_resolved())
         .map(|t| t.id)
@@ -491,7 +491,7 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
         let archived_ids = store.load_archived_ids()?;
 
         if needs_validation {
-            let mut known_ids: HashSet<u32> = all_tasks.iter().map(|t| t.id).collect();
+            let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
             known_ids.extend(&archived_ids);
 
             if let Some(parent) = args.mods.parent {
@@ -557,7 +557,7 @@ fn cmd_edit_interactive(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_start(cli: &Cli, id: u32) -> Result<(), Error> {
+fn cmd_start(cli: &Cli, id: TaskId) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
@@ -577,7 +577,7 @@ fn cmd_start(cli: &Cli, id: u32) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_done(cli: &Cli, id: u32, force: bool) -> Result<(), Error> {
+fn cmd_done(cli: &Cli, id: TaskId, force: bool) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
@@ -600,7 +600,7 @@ fn cmd_done(cli: &Cli, id: u32, force: bool) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_cancel(cli: &Cli, id: u32) -> Result<(), Error> {
+fn cmd_cancel(cli: &Cli, id: TaskId) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
@@ -710,7 +710,7 @@ fn cmd_prime_install(agent: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_log(cli: &Cli, id: u32, message: &str, agent: Option<&str>) -> Result<(), Error> {
+fn cmd_log(cli: &Cli, id: TaskId, message: &str, agent: Option<&str>) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
@@ -730,13 +730,13 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let all_tasks = store.load_all_tasks()?;
-    let mut done_ids: HashSet<u32> = all_tasks
+    let mut done_ids: HashSet<TaskId> = all_tasks
         .iter()
         .filter(|t| t.status.is_resolved())
         .map(|t| t.id)
         .collect();
     done_ids.extend(store.load_archived_ids()?);
-    let has_incomplete_child: HashSet<u32> = all_tasks
+    let has_incomplete_child: HashSet<TaskId> = all_tasks
         .iter()
         .filter(|t| !t.status.is_resolved())
         .filter_map(|t| t.parent)
@@ -801,7 +801,7 @@ fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
     }
 
     if cli.json {
-        let ids: Vec<u32> = to_archive.iter().map(|t| t.id).collect();
+        let ids: Vec<TaskId> = to_archive.iter().map(|t| t.id).collect();
         println!("{}", serde_json::to_string_pretty(&ids).unwrap());
     } else {
         let n = to_archive.len();
@@ -828,7 +828,7 @@ fn normalize_description(s: &str) -> Option<String> {
 }
 
 /// Strip resolved deps so agents don't see false blockers.
-fn prepare_json(tasks: &[impl std::borrow::Borrow<Task>], done_ids: &HashSet<u32>) -> Vec<Task> {
+fn prepare_json(tasks: &[impl std::borrow::Borrow<Task>], done_ids: &HashSet<TaskId>) -> Vec<Task> {
     let mut tasks: Vec<Task> = tasks
         .iter()
         .map(|t| {
@@ -843,12 +843,12 @@ fn prepare_json(tasks: &[impl std::borrow::Borrow<Task>], done_ids: &HashSet<u32
 
 fn validate_completion(
     all_tasks: &[Task],
-    archived_ids: &HashSet<u32>,
+    archived_ids: &HashSet<TaskId>,
     task: &Task,
 ) -> Result<(), Error> {
-    let task_map: HashMap<u32, &Task> = all_tasks.iter().map(|t| (t.id, t)).collect();
+    let task_map: HashMap<TaskId, &Task> = all_tasks.iter().map(|t| (t.id, t)).collect();
 
-    let unmet: Vec<u32> = task
+    let unmet: Vec<TaskId> = task
         .depends
         .iter()
         .filter(|dep_id| match task_map.get(dep_id) {
@@ -861,7 +861,7 @@ fn validate_completion(
         return Err(Error::UnmetDependencies(unmet));
     }
 
-    let incomplete: Vec<u32> = all_tasks
+    let incomplete: Vec<TaskId> = all_tasks
         .iter()
         .filter(|t| t.parent == Some(task.id) && !t.status.is_resolved())
         .map(|t| t.id)

@@ -1,12 +1,41 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-pub fn kdl_int(v: u32) -> kdl::KdlEntry {
-    kdl::KdlEntry::new(i128::from(v))
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TaskId(u32);
+
+impl TaskId {
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for TaskId {
+    fn from(v: u32) -> Self {
+        Self(v)
+    }
+}
+
+impl std::fmt::Display for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for TaskId {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<u32>().map(Self)
+    }
+}
+
+pub fn kdl_int(v: TaskId) -> kdl::KdlEntry {
+    kdl::KdlEntry::new(i128::from(v.as_u32()))
 }
 
 pub struct Style {
@@ -174,7 +203,7 @@ pub struct LogEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Task {
-    pub id: u32,
+    pub id: TaskId,
     pub title: String,
     pub status: Status,
     #[serde(skip_serializing_if = "Priority::is_default")]
@@ -184,9 +213,9 @@ pub struct Task {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<u32>,
+    pub parent: Option<TaskId>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub depends: Vec<u32>,
+    pub depends: Vec<TaskId>,
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -194,13 +223,13 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn is_blocked(&self, done_ids: &HashSet<u32>) -> bool {
+    pub fn is_blocked(&self, done_ids: &HashSet<TaskId>) -> bool {
         self.status == Status::Todo
             && !self.depends.is_empty()
             && self.depends.iter().any(|d| !done_ids.contains(d))
     }
 
-    pub fn sort_key(&self, done_ids: &HashSet<u32>) -> impl Ord {
+    pub fn sort_key(&self, done_ids: &HashSet<TaskId>) -> impl Ord {
         (
             self.status.sort_rank(self.is_blocked(done_ids)),
             self.priority,
@@ -208,7 +237,7 @@ impl Task {
         )
     }
 
-    pub fn new(id: u32, title: String) -> Self {
+    pub fn new(id: TaskId, title: String) -> Self {
         let now = Utc::now();
         Self {
             id,
@@ -227,7 +256,7 @@ impl Task {
 
     pub fn to_kdl(&self) -> kdl::KdlDocument {
         let mut task_node = kdl::KdlNode::new("task");
-        task_node.push(kdl::KdlEntry::new_prop("id", i128::from(self.id)));
+        task_node.push(kdl::KdlEntry::new_prop("id", i128::from(self.id.as_u32())));
         task_node.push(kdl::KdlEntry::new_prop("status", self.status.as_str()));
         if !self.priority.is_default() {
             task_node.push(kdl::KdlEntry::new_prop("priority", self.priority.as_str()));
@@ -261,8 +290,8 @@ impl Task {
 
         if !self.depends.is_empty() {
             let mut depends_node = kdl::KdlNode::new("depends");
-            for dep in &self.depends {
-                depends_node.push(kdl_int(*dep));
+            for &dep in &self.depends {
+                depends_node.push(kdl_int(dep));
             }
             children.nodes_mut().push(depends_node);
         }
@@ -303,7 +332,7 @@ impl Task {
             .find(|n| n.name().value() == "task")
             .ok_or_else(|| Error::InvalidTaskFile("missing task node".into()))?;
 
-        let id = get_prop_u32(task_node, "id")?;
+        let id = get_prop_task_id(task_node, "id")?;
         let status: Status = get_prop_str(task_node, "status")?
             .parse()
             .map_err(Error::InvalidTaskFile)?;
@@ -323,8 +352,8 @@ impl Task {
         let description = get_child_str(children, "description")?.map(|s| s.to_owned());
 
         let labels = get_child_strings(children, "labels");
-        let parent = get_child_u32(children, "parent")?;
-        let depends = get_child_u32s(children, "depends")?;
+        let parent = get_child_task_id(children, "parent")?;
+        let depends = get_child_task_ids(children, "depends")?;
 
         let created = parse_datetime(
             get_child_str(children, "created")?
@@ -353,13 +382,15 @@ impl Task {
     }
 }
 
-fn get_prop_u32(node: &kdl::KdlNode, key: &str) -> Result<u32, Error> {
+fn get_prop_task_id(node: &kdl::KdlNode, key: &str) -> Result<TaskId, Error> {
     let raw = node
         .get(key)
         .and_then(|v| v.as_integer())
         .ok_or_else(|| Error::InvalidTaskFile(format!("missing or invalid property: {key}")))?;
-    raw.try_into()
-        .map_err(|_| Error::InvalidTaskFile(format!("{key} out of range: {raw}")))
+    let v: u32 = raw
+        .try_into()
+        .map_err(|_| Error::InvalidTaskFile(format!("{key} out of range: {raw}")))?;
+    Ok(TaskId::from(v))
 }
 
 fn get_prop_str<'a>(node: &'a kdl::KdlNode, key: &str) -> Result<&'a str, Error> {
@@ -397,7 +428,7 @@ fn get_child_strings(doc: &kdl::KdlDocument, name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn get_child_u32(doc: &kdl::KdlDocument, name: &str) -> Result<Option<u32>, Error> {
+fn get_child_task_id(doc: &kdl::KdlDocument, name: &str) -> Result<Option<TaskId>, Error> {
     match doc.nodes().iter().find(|n| n.name().value() == name) {
         Some(node) => {
             let raw = node
@@ -407,16 +438,16 @@ fn get_child_u32(doc: &kdl::KdlDocument, name: &str) -> Result<Option<u32>, Erro
                 .ok_or_else(|| {
                     Error::InvalidTaskFile(format!("{name} node missing integer value"))
                 })?;
-            let val: u32 = raw
+            let v: u32 = raw
                 .try_into()
                 .map_err(|_| Error::InvalidTaskFile(format!("{name} out of range: {raw}")))?;
-            Ok(Some(val))
+            Ok(Some(TaskId::from(v)))
         }
         None => Ok(None),
     }
 }
 
-fn get_child_u32s(doc: &kdl::KdlDocument, name: &str) -> Result<Vec<u32>, Error> {
+fn get_child_task_ids(doc: &kdl::KdlDocument, name: &str) -> Result<Vec<TaskId>, Error> {
     match doc.nodes().iter().find(|n| n.name().value() == name) {
         Some(node) => node
             .entries()
@@ -425,9 +456,10 @@ fn get_child_u32s(doc: &kdl::KdlDocument, name: &str) -> Result<Vec<u32>, Error>
                 let raw = e.value().as_integer().ok_or_else(|| {
                     Error::InvalidTaskFile(format!("{name} has non-integer value"))
                 })?;
-                raw.try_into().map_err(|_| {
+                let v: u32 = raw.try_into().map_err(|_| {
                     Error::InvalidTaskFile(format!("{name} value out of range: {raw}"))
-                })
+                })?;
+                Ok(TaskId::from(v))
             })
             .collect(),
         None => Ok(Vec::new()),
@@ -472,7 +504,7 @@ fn parse_log_entries(doc: &kdl::KdlDocument) -> Result<Vec<LogEntry>, Error> {
         .collect()
 }
 
-pub fn validate_deps_exist(known_ids: &HashSet<u32>, deps: &[u32]) -> Result<(), Error> {
+pub fn validate_deps_exist(known_ids: &HashSet<TaskId>, deps: &[TaskId]) -> Result<(), Error> {
     for dep in deps {
         if !known_ids.contains(dep) {
             return Err(Error::TaskNotFound(*dep));
@@ -483,15 +515,15 @@ pub fn validate_deps_exist(known_ids: &HashSet<u32>, deps: &[u32]) -> Result<(),
 
 pub fn validate_parent(
     tasks: &[Task],
-    known_ids: &HashSet<u32>,
-    id: u32,
-    parent: u32,
+    known_ids: &HashSet<TaskId>,
+    id: TaskId,
+    parent: TaskId,
 ) -> Result<(), Error> {
     if !known_ids.contains(&parent) {
         return Err(Error::TaskNotFound(parent));
     }
     // Walk the parent chain to detect cycles
-    let parent_map: HashMap<u32, u32> = tasks
+    let parent_map: HashMap<TaskId, TaskId> = tasks
         .iter()
         .filter_map(|t| t.parent.map(|p| (t.id, p)))
         .collect();
@@ -509,7 +541,7 @@ pub fn validate_parent(
 
 /// DFS cycle detection over the dependency graph.
 pub fn validate_dag(tasks: &[Task]) -> Result<(), Error> {
-    let dep_map: HashMap<u32, &[u32]> =
+    let dep_map: HashMap<TaskId, &[TaskId]> =
         tasks.iter().map(|t| (t.id, t.depends.as_slice())).collect();
     let mut visited = HashSet::new();
     let mut in_stack = HashSet::new();
@@ -524,10 +556,10 @@ pub fn validate_dag(tasks: &[Task]) -> Result<(), Error> {
 }
 
 fn has_cycle(
-    id: u32,
-    dep_map: &HashMap<u32, &[u32]>,
-    visited: &mut HashSet<u32>,
-    in_stack: &mut HashSet<u32>,
+    id: TaskId,
+    dep_map: &HashMap<TaskId, &[TaskId]>,
+    visited: &mut HashSet<TaskId>,
+    in_stack: &mut HashSet<TaskId>,
 ) -> bool {
     visited.insert(id);
     in_stack.insert(id);

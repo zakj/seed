@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::markdown;
-use crate::task::{Status, Style, Task};
+use crate::task::{Status, Style, Task, TaskId};
 use crate::term::{visible_width, wrap_words};
 
 // ANSI styles
@@ -49,7 +49,7 @@ pub fn format_task_detail(
     parent: Option<&Task>,
     deps: &[Task],
     children: &[Task],
-    resolved: &HashSet<u32>,
+    resolved: &HashSet<TaskId>,
     terminal_width: Option<usize>,
 ) -> String {
     let width = terminal_width.unwrap_or(80).min(80);
@@ -176,7 +176,7 @@ struct ListRow<'a> {
     tree: String,
 }
 
-fn tree_depth(parent_map: &HashMap<u32, u32>) -> usize {
+fn tree_depth(parent_map: &HashMap<TaskId, TaskId>) -> usize {
     let mut max = 0;
     for &id in parent_map.keys() {
         let mut d = 0;
@@ -199,7 +199,7 @@ fn format_list_row(
     row: &ListRow,
     id_width: usize,
     tree_width: usize,
-    done_ids: &HashSet<u32>,
+    done_ids: &HashSet<TaskId>,
 ) -> String {
     let task = row.task;
     let blocked = task.is_blocked(done_ids);
@@ -223,7 +223,7 @@ fn format_list_row(
     }
 }
 
-pub fn format_task_list(tasks: &[Task], flat: bool, done_ids: &HashSet<u32>) -> String {
+pub fn format_task_list(tasks: &[Task], flat: bool, done_ids: &HashSet<TaskId>) -> String {
     if tasks.is_empty() {
         return String::from("No tasks.\n");
     }
@@ -234,7 +234,7 @@ pub fn format_task_list(tasks: &[Task], flat: bool, done_ids: &HashSet<u32>) -> 
     }
 }
 
-fn format_flat(tasks: &[Task], done_ids: &HashSet<u32>) -> String {
+fn format_flat(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
     let id_width = tasks
         .iter()
         .map(|t| t.id.to_string().len())
@@ -253,10 +253,10 @@ fn format_flat(tasks: &[Task], done_ids: &HashSet<u32>) -> String {
     out
 }
 
-fn format_tree(tasks: &[Task], done_ids: &HashSet<u32>) -> String {
-    let task_ids: HashSet<u32> = tasks.iter().map(|t| t.id).collect();
-    let mut children_map: HashMap<Option<u32>, Vec<&Task>> = HashMap::new();
-    let mut parent_map: HashMap<u32, u32> = HashMap::new();
+fn format_tree(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
+    let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
+    let mut children_map: HashMap<Option<TaskId>, Vec<&Task>> = HashMap::new();
+    let mut parent_map: HashMap<TaskId, TaskId> = HashMap::new();
     for task in tasks {
         // Treat tasks with missing parents as roots
         let parent = task.parent.filter(|p| task_ids.contains(p));
@@ -289,8 +289,8 @@ fn format_tree(tasks: &[Task], done_ids: &HashSet<u32>) -> String {
 }
 
 fn collect_tree_rows<'a>(
-    children_map: &HashMap<Option<u32>, Vec<&'a Task>>,
-    parent: Option<u32>,
+    children_map: &HashMap<Option<TaskId>, Vec<&'a Task>>,
+    parent: Option<TaskId>,
     prefix: &str,
     rows: &mut Vec<ListRow<'a>>,
 ) {
