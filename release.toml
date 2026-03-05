@@ -1,0 +1,2 @@
+allow-branch = ["HEAD"]
+publish = false
