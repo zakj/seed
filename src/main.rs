@@ -115,9 +115,9 @@ complete. Use --force to skip validation."
     /// Output markdown context dump for agent priming
     #[command(hide = true)]
     Prime {
-        /// Install agent hooks (e.g. "claude")
+        /// Install agent hooks
         #[arg(long)]
-        install: Option<String>,
+        install: Option<task::Agent>,
     },
 
     /// Show tasks ready to work on
@@ -267,7 +267,7 @@ fn run(cli: &Cli) -> Result<(), Error> {
         Command::Cancel { id } => cmd_cancel(cli, *id),
         Command::Log { id, message, agent } => cmd_log(cli, *id, message, agent.as_deref()),
         Command::Prime { install } => match install {
-            Some(agent) => cmd_prime_install(agent),
+            Some(agent) => cmd_prime_install(*agent),
             None => cmd_prime(),
         },
         Command::Next => cmd_next(cli),
@@ -621,14 +621,7 @@ fn cmd_prime() -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_prime_install(agent: &str) -> Result<(), Error> {
-    if agent != "claude" {
-        return Err(Error::UnsupportedAgent {
-            name: agent.to_owned(),
-            supported: vec!["claude".to_owned()],
-        });
-    }
-
+fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let project_root = store

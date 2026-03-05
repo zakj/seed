@@ -118,7 +118,7 @@ sd cancel <id>                   Mark cancelled
 sd log <id> "message"            Append to task log
 sd next                          Ready tasks (deps met, no incomplete children, root only, status todo)
 sd prime                         Static markdown guide for AI agent onboarding
-sd prime --install <agent>       Install agent hooks (e.g. "claude")
+sd prime --install <agent>       Install agent hooks
 sd archive                       Move resolved tasks to archive (optional age cutoff)
 sd completions <shell>           Generate shell completions
 sd tui                           Interactive terminal UI (planned)

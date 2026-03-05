@@ -43,12 +43,6 @@ pub enum Error {
     #[error("invalid config: {0}")]
     InvalidConfig(String),
 
-    #[error("unsupported agent \"{name}\"; supported agents: {}", supported.join(", "))]
-    UnsupportedAgent {
-        name: String,
-        supported: Vec<String>,
-    },
-
     #[error("$VISUAL or $EDITOR must be set")]
     NoEditor,
 

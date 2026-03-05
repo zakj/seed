@@ -193,6 +193,13 @@ impl std::fmt::Display for Priority {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Agent {
+    #[value(name = "claude")]
+    Claude,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
