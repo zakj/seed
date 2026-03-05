@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -210,12 +210,12 @@ pub struct Task {
     pub priority: Priority,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub labels: BTreeSet<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<TaskId>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub depends: Vec<TaskId>,
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub depends: BTreeSet<TaskId>,
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -245,9 +245,9 @@ impl Task {
             status: Status::Todo,
             priority: Priority::default(),
             description: None,
-            labels: Vec::new(),
+            labels: BTreeSet::new(),
             parent: None,
-            depends: Vec::new(),
+            depends: BTreeSet::new(),
             created: now,
             modified: now,
             log: Vec::new(),
@@ -290,8 +290,8 @@ impl Task {
 
         if !self.depends.is_empty() {
             let mut depends_node = kdl::KdlNode::new("depends");
-            for &dep in &self.depends {
-                depends_node.push(kdl_int(dep));
+            for dep in &self.depends {
+                depends_node.push(kdl_int(*dep));
             }
             children.nodes_mut().push(depends_node);
         }
@@ -415,7 +415,7 @@ fn get_child_str<'a>(doc: &'a kdl::KdlDocument, name: &str) -> Result<Option<&'a
     }
 }
 
-fn get_child_strings(doc: &kdl::KdlDocument, name: &str) -> Vec<String> {
+fn get_child_strings(doc: &kdl::KdlDocument, name: &str) -> BTreeSet<String> {
     doc.nodes()
         .iter()
         .find(|n| n.name().value() == name)
@@ -447,7 +447,7 @@ fn get_child_task_id(doc: &kdl::KdlDocument, name: &str) -> Result<Option<TaskId
     }
 }
 
-fn get_child_task_ids(doc: &kdl::KdlDocument, name: &str) -> Result<Vec<TaskId>, Error> {
+fn get_child_task_ids(doc: &kdl::KdlDocument, name: &str) -> Result<BTreeSet<TaskId>, Error> {
     match doc.nodes().iter().find(|n| n.name().value() == name) {
         Some(node) => node
             .entries()
@@ -462,7 +462,7 @@ fn get_child_task_ids(doc: &kdl::KdlDocument, name: &str) -> Result<Vec<TaskId>,
                 Ok(TaskId::from(v))
             })
             .collect(),
-        None => Ok(Vec::new()),
+        None => Ok(BTreeSet::new()),
     }
 }
 
@@ -541,8 +541,8 @@ pub fn validate_parent(
 
 /// DFS cycle detection over the dependency graph.
 pub fn validate_dag(tasks: &[Task]) -> Result<(), Error> {
-    let dep_map: HashMap<TaskId, &[TaskId]> =
-        tasks.iter().map(|t| (t.id, t.depends.as_slice())).collect();
+    let dep_map: HashMap<TaskId, &BTreeSet<TaskId>> =
+        tasks.iter().map(|t| (t.id, &t.depends)).collect();
     let mut visited = HashSet::new();
     let mut in_stack = HashSet::new();
 
@@ -557,7 +557,7 @@ pub fn validate_dag(tasks: &[Task]) -> Result<(), Error> {
 
 fn has_cycle(
     id: TaskId,
-    dep_map: &HashMap<TaskId, &[TaskId]>,
+    dep_map: &HashMap<TaskId, &BTreeSet<TaskId>>,
     visited: &mut HashSet<TaskId>,
     in_stack: &mut HashSet<TaskId>,
 ) -> bool {

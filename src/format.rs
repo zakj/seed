@@ -85,7 +85,12 @@ pub fn format_task_detail(
     if task.labels.is_empty() {
         out.push_str(&format!("{DIM}{}{RESET}\n", rule(width)));
     } else {
-        let labels = task.labels.join(&format!(" {SYM_DOT} "));
+        let labels = task
+            .labels
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(&format!(" {SYM_DOT} "));
         let right_width = 1 + visible_width(&labels) + 1 + 2; // space labels space ──
         let fill = width.saturating_sub(right_width);
         out.push_str(&format!(

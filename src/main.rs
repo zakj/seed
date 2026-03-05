@@ -298,9 +298,9 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
 
     let mut task = Task::new(id, args.title.clone());
     task.priority = args.priority.unwrap_or_default();
-    task.labels = args.label.clone();
+    task.labels = args.label.iter().cloned().collect();
     task.parent = args.parent;
-    task.depends = args.dep.clone();
+    task.depends = args.dep.iter().copied().collect();
     task.description = args.description.as_deref().and_then(normalize_description);
 
     if args.parent.is_some() || !args.dep.is_empty() {
@@ -465,15 +465,11 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
         task.parent = None;
     }
     for label in &args.mods.add_label {
-        if !task.labels.contains(label) {
-            task.labels.push(label.clone());
-        }
+        task.labels.insert(label.clone());
     }
     task.labels.retain(|l| !args.mods.rm_label.contains(l));
-    for dep in &args.mods.add_dep {
-        if !task.depends.contains(dep) {
-            task.depends.push(*dep);
-        }
+    for &dep in &args.mods.add_dep {
+        task.depends.insert(dep);
     }
     task.depends.retain(|d| !args.mods.rm_dep.contains(d));
 
