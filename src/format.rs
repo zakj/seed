@@ -47,7 +47,7 @@ fn rule(width: usize) -> String {
 pub fn format_task_detail(
     task: &Task,
     parent: Option<&Task>,
-    deps: &[Task],
+    deps: &[&Task],
     children: &[Task],
     resolved: &HashSet<TaskId>,
     terminal_width: Option<usize>,

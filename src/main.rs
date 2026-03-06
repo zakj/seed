@@ -349,15 +349,16 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
     let task_is_archived = !all_tasks.iter().any(|t| t.id == id);
     let parent_task = task
         .parent
-        .and_then(|pid| all_tasks.iter().find(|t| t.id == pid).cloned());
-    let dep_tasks: Vec<Task> = task
+        .and_then(|pid| all_tasks.iter().find(|t| t.id == pid));
+    let dep_tasks: Vec<&Task> = task
         .depends
         .iter()
-        .filter_map(|id| all_tasks.iter().find(|t| t.id == *id).cloned())
+        .filter_map(|id| all_tasks.iter().find(|t| t.id == *id))
         .collect();
     let mut children: Vec<Task> = all_tasks
-        .into_iter()
+        .iter()
         .filter(|t| t.parent == Some(id))
+        .cloned()
         .collect();
     if include_archived || task_is_archived {
         children.extend(
@@ -380,14 +381,7 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
         print!(
             "{}",
-            format::format_task_detail(
-                &task,
-                parent_task.as_ref(),
-                &dep_tasks,
-                &children,
-                &done_ids,
-                width,
-            )
+            format::format_task_detail(&task, parent_task, &dep_tasks, &children, &done_ids, width,)
         );
     }
     Ok(())
@@ -730,13 +724,14 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
         .filter(|t| !t.status.is_resolved())
         .filter_map(|t| t.parent)
         .collect();
-    let mut ready: Vec<&Task> = all_tasks
+    let mut ready: Vec<Task> = all_tasks
         .iter()
         .filter(|t| {
             t.status == Status::Todo
                 && t.depends.iter().all(|d| done_ids.contains(d))
                 && !has_incomplete_child.contains(&t.id)
         })
+        .cloned()
         .collect();
     ready.sort_by(|a, b| a.sort_key(&done_ids).cmp(&b.sort_key(&done_ids)));
 
@@ -748,8 +743,7 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
     } else if ready.is_empty() {
         println!("No tasks ready.");
     } else {
-        let owned: Vec<Task> = ready.into_iter().cloned().collect();
-        print!("{}", format::format_task_list(&owned, true, &done_ids));
+        print!("{}", format::format_task_list(&ready, true, &done_ids));
     }
     Ok(())
 }
