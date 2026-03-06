@@ -2,7 +2,7 @@
 _.path = ["./target/debug"]
 
 [tools]
-rust = "latest"
+rust = "stable"
 "github:crate-ci/cargo-release" = "latest"
 
 [tasks.lint]
