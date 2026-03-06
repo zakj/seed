@@ -69,9 +69,9 @@ fn hard_break_word(
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
             out.push(ch);
-            if let Some(&next) = chars.as_str().chars().next().as_ref() {
+            if let Some(&next) = chars.as_str().as_bytes().first() {
                 match next {
-                    '[' => {
+                    b'[' => {
                         // CSI: \x1b[ ... <letter>
                         for ch in chars.by_ref() {
                             out.push(ch);
@@ -80,7 +80,7 @@ fn hard_break_word(
                             }
                         }
                     }
-                    ']' => {
+                    b']' => {
                         // OSC: \x1b] ... (ST or BEL)
                         let mut prev = '\0';
                         for ch in chars.by_ref() {
@@ -93,7 +93,9 @@ fn hard_break_word(
                     }
                     _ => {
                         // Simple two-char escape
-                        out.push(chars.next().unwrap());
+                        if let Some(ch) = chars.next() {
+                            out.push(ch);
+                        }
                     }
                 }
             }
