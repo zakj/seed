@@ -70,7 +70,7 @@ enum Command {
         include_archived: bool,
     },
 
-    /// Edit a task (opens $EDITOR with no flags)
+    /// Edit a task (opens description in $EDITOR with no flags)
     Edit(EditArgs),
 
     /// Start a task (set status to in-progress)
