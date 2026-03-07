@@ -247,11 +247,11 @@ fn start_done_cancel_set_status() {
         .current_dir(dir.path())
         .assert()
         .success();
-    sd().args(["cancel", "2"])
+    sd().args(["drop", "2"])
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicates::str::contains("cancelled"));
+        .stdout(predicates::str::contains("dropped"));
 }
 
 #[test]
@@ -1007,7 +1007,7 @@ fn start_already_in_progress_is_noop() {
 }
 
 #[test]
-fn cancel_done_task_fails() {
+fn drop_done_task_fails() {
     let dir = init_project();
     sd().args(["add", "Task"])
         .current_dir(dir.path())
@@ -1018,11 +1018,11 @@ fn cancel_done_task_fails() {
         .assert()
         .success();
 
-    sd().args(["cancel", "1"])
+    sd().args(["drop", "1"])
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicates::str::contains("cannot cancel"));
+        .stderr(predicates::str::contains("cannot drop"));
 }
 
 #[test]

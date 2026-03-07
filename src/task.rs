@@ -53,8 +53,8 @@ pub enum Status {
     InProgress,
     #[value(name = "done")]
     Done,
-    #[value(name = "cancelled")]
-    Cancelled,
+    #[value(name = "dropped")]
+    Dropped,
 }
 
 impl Status {
@@ -76,9 +76,9 @@ impl Status {
                 label: "done",
                 color: AnsiColor::Green.on_default(),
             },
-            Self::Cancelled => Style {
+            Self::Dropped => Style {
                 symbol: "×",
-                label: "cancelled",
+                label: "dropped",
                 color: anstyle::Style::new().dimmed(),
             },
         }
@@ -89,7 +89,7 @@ impl Status {
     }
 
     pub const fn is_resolved(self) -> bool {
-        matches!(self, Self::Done | Self::Cancelled)
+        matches!(self, Self::Done | Self::Dropped)
     }
 
     const fn sort_rank(self, blocked: bool) -> u8 {
@@ -98,7 +98,7 @@ impl Status {
             (Self::Todo, false) => 1,
             (Self::Todo, true) => 2,
             (Self::Done, _) => 3,
-            (Self::Cancelled, _) => 3,
+            (Self::Dropped, _) => 3,
         }
     }
 }
@@ -110,7 +110,7 @@ impl std::str::FromStr for Status {
             "todo" => Ok(Self::Todo),
             "in-progress" => Ok(Self::InProgress),
             "done" => Ok(Self::Done),
-            "cancelled" => Ok(Self::Cancelled),
+            "dropped" | "cancelled" => Ok(Self::Dropped),
             other => Err(format!("unknown status: {other}")),
         }
     }

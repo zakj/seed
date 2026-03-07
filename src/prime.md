@@ -20,7 +20,7 @@ This project uses `sd` for task management. Run `sd <command> --help` for detail
 
 ## Conventions
 
-- Statuses: `todo`, `in-progress`, `done`, `cancelled`
+- Statuses: `todo`, `in-progress`, `done`, `dropped`
 - Priorities: `critical`, `high`, `normal` (default), `low`
 - Tasks form a DAG: parent/child hierarchy + dependency edges, both validated acyclic
 - Task files live in `.seed/tasks/<id>.kdl` (KDL format, human-editable)

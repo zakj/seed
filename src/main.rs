@@ -93,8 +93,8 @@ complete. Use --force to skip validation."
         force: bool,
     },
 
-    /// Cancel a task
-    Cancel {
+    /// Drop a task
+    Drop {
         /// Task ID
         id: TaskId,
     },
@@ -129,7 +129,7 @@ whose children are all complete. Sorted by priority."
 
     /// Archive resolved tasks
     #[command(
-        long_about = "Archive resolved tasks.\n\nMoves done and cancelled tasks from .seed/tasks/ to \
+        long_about = "Archive resolved tasks.\n\nMoves done and dropped tasks from .seed/tasks/ to \
 .seed/archive/. Without a cutoff, archives all resolved tasks."
     )]
     Archive {
@@ -264,7 +264,7 @@ fn run(cli: &Cli) -> Result<(), Error> {
         }
         Command::Start { id } => cmd_start(cli, *id),
         Command::Done { id, force } => cmd_done(cli, *id, *force),
-        Command::Cancel { id } => cmd_cancel(cli, *id),
+        Command::Drop { id } => cmd_drop(cli, *id),
         Command::Log { id, message, agent } => cmd_log(cli, *id, message, agent.as_deref()),
         Command::Prime { install } => match install {
             Some(agent) => cmd_prime_install(*agent),
@@ -590,23 +590,23 @@ fn cmd_done(cli: &Cli, id: TaskId, force: bool) -> Result<(), Error> {
     Ok(())
 }
 
-fn cmd_cancel(cli: &Cli, id: TaskId) -> Result<(), Error> {
+fn cmd_drop(cli: &Cli, id: TaskId) -> Result<(), Error> {
     let cwd = env::current_dir()?;
     let store = Store::find(&cwd)?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
 
-    if task.status == Status::Cancelled {
-        print_task(cli, &task, format_args!("Task {id} is already cancelled"));
+    if task.status == Status::Dropped {
+        print_task(cli, &task, format_args!("Task {id} is already dropped"));
         return Ok(());
     }
     if task.status == Status::Done {
-        return Err(Error::CannotCancel(id));
+        return Err(Error::CannotDrop(id));
     }
 
-    task.status = Status::Cancelled;
+    task.status = Status::Dropped;
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked cancelled"));
+    print_task(cli, &task, format_args!("Task {id} marked dropped"));
     Ok(())
 }
 

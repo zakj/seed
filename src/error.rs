@@ -31,8 +31,8 @@ pub enum Error {
     #[error("cannot start task {0}: task is {1}")]
     CannotStart(TaskId, Status),
 
-    #[error("cannot cancel task {0}: task is done")]
-    CannotCancel(TaskId),
+    #[error("cannot drop task {0}: task is done")]
+    CannotDrop(TaskId),
 
     #[error("invalid task file: {0}")]
     InvalidTaskFile(String),

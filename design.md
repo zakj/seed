@@ -18,7 +18,7 @@ A task tracker for AI coding agents and humans. Fast, opinionated, simple.
   tasks/
     1.kdl                // one file per task
     2.kdl
-  archive/               // completed/cancelled tasks
+  archive/               // completed/dropped tasks
     3.kdl
 ```
 
@@ -68,7 +68,7 @@ task id=7 status="in-progress" priority="high" {
 |-------|------|-------|
 | `id` | integer | Sequential, never reused. Human-friendly. |
 | `title` | string | Short summary. |
-| `status` | enum | `todo`, `in-progress`, `done`, `cancelled` |
+| `status` | enum | `todo`, `in-progress`, `done`, `dropped` |
 | `priority` | enum | `critical`, `high`, `normal`, `low`. Optional. |
 | `description` | string | Multiline KDL raw string. Markdown content. |
 | `labels` | string[] | Flat tags, no taxonomy. |
@@ -80,7 +80,7 @@ task id=7 status="in-progress" priority="high" {
 
 ### Statuses
 
-Four statuses: `todo`, `in-progress`, `done`, `cancelled`.
+Four statuses: `todo`, `in-progress`, `done`, `dropped`.
 
 Free transitions — no enforced state machine. The tool doesn't police workflow.
 
@@ -114,7 +114,7 @@ sd edit <id>                     Open description in $EDITOR
 sd edit <id> --field value       Flag-based field updates
 sd start <id>                    Shorthand: edit --status in-progress
 sd done <id>                     Mark done (validates deps/children)
-sd cancel <id>                   Mark cancelled
+sd drop <id>                     Mark dropped
 sd log <id> "message"            Append to task log
 sd next                          Ready tasks (deps met, no incomplete children, root only, status todo)
 sd prime                         Static markdown guide for AI agent onboarding
@@ -137,7 +137,7 @@ sd tui                           Interactive terminal UI (planned)
 
 - Short binary name (`sd`)
 - Tree view by default in `sd list`
-- `sd start` / `sd done` / `sd cancel` as status shorthands
+- `sd start` / `sd done` / `sd drop` as status shorthands
 - `sd tui` for browsing and light editing
 
 ## TUI (planned)
