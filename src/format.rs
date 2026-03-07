@@ -48,7 +48,7 @@ pub fn format_task_detail(
     task: &Task,
     parent: Option<&Task>,
     deps: &[&Task],
-    children: &[Task],
+    children: &[&Task],
     resolved: &HashSet<TaskId>,
     terminal_width: Option<usize>,
 ) -> String {
@@ -88,7 +88,7 @@ pub fn format_task_detail(
         let labels = task
             .labels
             .iter()
-            .cloned()
+            .map(String::as_str)
             .collect::<Vec<_>>()
             .join(&format!(" {SYM_DOT} "));
         let right_width = 1 + visible_width(&labels) + 1 + 2; // space labels space ──

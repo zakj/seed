@@ -313,16 +313,14 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
         }
         if !args.dep.is_empty() {
             validate_deps_exist(&known_ids, &args.dep)?;
-            let mut tasks_with_new = all_tasks;
-            tasks_with_new.push(task.clone());
-            validate_dag(&tasks_with_new)?;
+            validate_dag(&all_tasks, Some(&task))?;
         }
     }
 
     store.write_task(&task)?;
 
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&task).unwrap());
+        println!("{}", serde_json::to_string_pretty(&task)?);
     } else if args.quiet {
         println!("{id}");
     } else {
@@ -355,28 +353,29 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
         .iter()
         .filter_map(|id| all_tasks.iter().find(|t| t.id == *id))
         .collect();
-    let mut children: Vec<Task> = all_tasks
+    let archived_children: Vec<Task> = if include_archived || task_is_archived {
+        store
+            .load_archived_tasks()?
+            .into_iter()
+            .filter(|t| t.parent == Some(id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut children: Vec<&Task> = all_tasks
         .iter()
         .filter(|t| t.parent == Some(id))
-        .cloned()
+        .chain(archived_children.iter())
         .collect();
-    if include_archived || task_is_archived {
-        children.extend(
-            store
-                .load_archived_tasks()?
-                .into_iter()
-                .filter(|t| t.parent == Some(id)),
-        );
-    }
     children.sort_by(|a, b| a.sort_key(&done_ids).cmp(&b.sort_key(&done_ids)));
 
     if cli.json {
-        let mut value = serde_json::to_value(&task).unwrap();
+        let mut value = serde_json::to_value(&task)?;
         if !children.is_empty() {
             let ids: Vec<TaskId> = children.iter().map(|c| c.id).collect();
-            value["children"] = serde_json::to_value(ids).unwrap();
+            value["children"] = serde_json::to_value(ids)?;
         }
-        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
         print!(
@@ -426,7 +425,7 @@ fn cmd_list(
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(display, &done_ids)).unwrap()
+            serde_json::to_string_pretty(&prepare_json(display, &done_ids))?
         );
     } else {
         print!("{}", format::format_task_list(display, flat, &done_ids));
@@ -468,7 +467,7 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
     task.depends.retain(|d| !args.mods.rm_dep.contains(d));
 
     if task == original {
-        print_task(cli, &task, format_args!("No changes to task {}", args.id));
+        print_task(cli, &task, format_args!("No changes to task {}", args.id))?;
         return Ok(());
     }
 
@@ -489,13 +488,7 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
             }
             if !args.mods.add_dep.is_empty() {
                 validate_deps_exist(&known_ids, &args.mods.add_dep)?;
-                let mut tasks_with_updated: Vec<Task> = all_tasks
-                    .iter()
-                    .filter(|t| t.id != args.id)
-                    .cloned()
-                    .collect();
-                tasks_with_updated.push(task.clone());
-                validate_dag(&tasks_with_updated)?;
+                validate_dag(&all_tasks, Some(&task))?;
             }
         }
 
@@ -506,7 +499,7 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
 
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Updated task {}", args.id));
+    print_task(cli, &task, format_args!("Updated task {}", args.id))?;
     Ok(())
 }
 
@@ -543,7 +536,7 @@ fn cmd_edit_interactive(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
     task.description = normalize_description(trimmed);
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Updated task {}", args.id));
+    print_task(cli, &task, format_args!("Updated task {}", args.id))?;
     Ok(())
 }
 
@@ -553,7 +546,7 @@ fn cmd_start(cli: &Cli, id: TaskId) -> Result<(), Error> {
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
 
     if task.status == Status::InProgress {
-        print_task(cli, &task, format_args!("Task {id} is already in-progress"));
+        print_task(cli, &task, format_args!("Task {id} is already in-progress"))?;
         return Ok(());
     }
     if task.status.is_resolved() {
@@ -563,7 +556,7 @@ fn cmd_start(cli: &Cli, id: TaskId) -> Result<(), Error> {
     task.status = Status::InProgress;
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked in-progress"));
+    print_task(cli, &task, format_args!("Task {id} marked in-progress"))?;
     Ok(())
 }
 
@@ -573,7 +566,7 @@ fn cmd_done(cli: &Cli, id: TaskId, force: bool) -> Result<(), Error> {
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
 
     if task.status == Status::Done {
-        print_task(cli, &task, format_args!("Task {id} is already done"));
+        print_task(cli, &task, format_args!("Task {id} is already done"))?;
         return Ok(());
     }
 
@@ -586,7 +579,7 @@ fn cmd_done(cli: &Cli, id: TaskId, force: bool) -> Result<(), Error> {
     task.status = Status::Done;
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked done"));
+    print_task(cli, &task, format_args!("Task {id} marked done"))?;
     Ok(())
 }
 
@@ -596,7 +589,7 @@ fn cmd_drop(cli: &Cli, id: TaskId) -> Result<(), Error> {
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
 
     if task.status == Status::Dropped {
-        print_task(cli, &task, format_args!("Task {id} is already dropped"));
+        print_task(cli, &task, format_args!("Task {id} is already dropped"))?;
         return Ok(());
     }
     if task.status == Status::Done {
@@ -606,7 +599,7 @@ fn cmd_drop(cli: &Cli, id: TaskId) -> Result<(), Error> {
     task.status = Status::Dropped;
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked dropped"));
+    print_task(cli, &task, format_args!("Task {id} marked dropped"))?;
     Ok(())
 }
 
@@ -687,7 +680,7 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
 
     fs::write(
         &settings_path,
-        serde_json::to_string_pretty(&settings).unwrap() + "\n",
+        serde_json::to_string_pretty(&settings)? + "\n",
     )?;
     println!("Installed sd prime hook in {}", settings_path.display());
     println!("Restart Claude Code for the hook to take effect.");
@@ -706,7 +699,7 @@ fn cmd_log(cli: &Cli, id: TaskId, message: &str, agent: Option<&str>) -> Result<
     });
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Logged to task {id}"));
+    print_task(cli, &task, format_args!("Logged to task {id}"))?;
     Ok(())
 }
 
@@ -739,7 +732,7 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(&ready, &done_ids)).unwrap()
+            serde_json::to_string_pretty(&prepare_json(&ready, &done_ids))?
         );
     } else if ready.is_empty() {
         println!("No tasks ready.");
@@ -786,7 +779,7 @@ fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
 
     if cli.json {
         let ids: Vec<TaskId> = to_archive.iter().map(|t| t.id).collect();
-        println!("{}", serde_json::to_string_pretty(&ids).unwrap());
+        println!("{}", serde_json::to_string_pretty(&ids)?);
     } else {
         let n = to_archive.len();
         println!("Archived {n} task{}.", if n == 1 { "" } else { "s" });
@@ -794,12 +787,13 @@ fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
     Ok(())
 }
 
-fn print_task(cli: &Cli, task: &Task, message: impl std::fmt::Display) {
+fn print_task(cli: &Cli, task: &Task, message: impl std::fmt::Display) -> Result<(), Error> {
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(task).unwrap());
+        println!("{}", serde_json::to_string_pretty(task)?);
     } else {
         println!("{message}");
     }
+    Ok(())
 }
 
 fn normalize_description(s: &str) -> Option<String> {

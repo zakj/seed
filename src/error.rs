@@ -54,4 +54,7 @@ pub enum Error {
 
     #[error("KDL parse error: {0}")]
     Kdl(#[from] kdl::KdlError),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }

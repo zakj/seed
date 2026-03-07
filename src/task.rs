@@ -203,6 +203,8 @@ pub enum Agent {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
+    // Free-form string, not Option<Agent>: the Agent enum exists only for
+    // --install (per-agent hook setup); log entries accept any agent name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     pub message: String,
@@ -512,10 +514,8 @@ fn parse_log_entries(doc: &kdl::KdlDocument) -> Result<Vec<LogEntry>, Error> {
 }
 
 pub fn validate_deps_exist(known_ids: &HashSet<TaskId>, deps: &[TaskId]) -> Result<(), Error> {
-    for dep in deps {
-        if !known_ids.contains(dep) {
-            return Err(Error::TaskNotFound(*dep));
-        }
+    if let Some(dep) = deps.iter().find(|d| !known_ids.contains(d)) {
+        return Err(Error::TaskNotFound(*dep));
     }
     Ok(())
 }
@@ -547,15 +547,19 @@ pub fn validate_parent(
 }
 
 /// DFS cycle detection over the dependency graph.
-pub fn validate_dag(tasks: &[Task]) -> Result<(), Error> {
-    let dep_map: HashMap<TaskId, &BTreeSet<TaskId>> =
+/// When `overlay` is provided, it is inserted into (or replaces) the dep map
+/// so callers can validate a new/edited task without cloning the full task list.
+pub fn validate_dag(tasks: &[Task], overlay: Option<&Task>) -> Result<(), Error> {
+    let mut dep_map: HashMap<TaskId, &BTreeSet<TaskId>> =
         tasks.iter().map(|t| (t.id, &t.depends)).collect();
+    if let Some(t) = overlay {
+        dep_map.insert(t.id, &t.depends);
+    }
     let mut visited = HashSet::new();
     let mut in_stack = HashSet::new();
 
-    for task in tasks {
-        if !visited.contains(&task.id) && has_cycle(task.id, &dep_map, &mut visited, &mut in_stack)
-        {
+    for &id in dep_map.keys() {
+        if !visited.contains(&id) && has_cycle(id, &dep_map, &mut visited, &mut in_stack) {
             return Err(Error::CycleDetected);
         }
     }
