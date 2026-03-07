@@ -56,7 +56,7 @@ task id=7 status="in-progress" priority="high" {
   created "2026-03-03T10:00:00Z"
   modified "2026-03-03T14:30:00Z"
   log {
-    entry timestamp="2026-03-03T14:30:00Z" agent="claude-session-abc" \
+    entry ts="2026-03-03T14:30:00Z" agent="claude-session-abc" \
       "Root cause in src/api/client.ts:142"
   }
 }
@@ -116,7 +116,7 @@ sd start <id>                    Shorthand: edit --status in-progress
 sd done <id>                     Mark done (validates deps/children)
 sd drop <id>                     Mark dropped
 sd log <id> "message"            Append to task log
-sd next                          Ready tasks (deps met, no incomplete children, root only, status todo)
+sd next                          Ready tasks (deps met, no incomplete children, status todo)
 sd prime                         Static markdown guide for AI agent onboarding
 sd prime --install <agent>       Install agent hooks
 sd archive                       Move resolved tasks to archive (optional age cutoff)
@@ -126,7 +126,9 @@ sd tui                           Interactive terminal UI (planned)
 
 ### Agent-friendly design
 
-- `--json` on every command: stable schema, typed values
+- `--json` on every command: stable schema, typed values. `sd show` returns an
+  object; `sd list` / `sd next` return arrays. Resolved deps are stripped from
+  JSON output so agents don't see false blockers.
 - `-q` / `--quiet`: output just the ID for scripting
 - Predictable exit codes: 0 success, 1 error, 2 usage (via clap)
 - Errors to stderr, structured as JSON when `--json` is active
