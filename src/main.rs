@@ -690,6 +690,7 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
         serde_json::to_string_pretty(&settings).unwrap() + "\n",
     )?;
     println!("Installed sd prime hook in {}", settings_path.display());
+    println!("Restart Claude Code for the hook to take effect.");
     Ok(())
 }
 

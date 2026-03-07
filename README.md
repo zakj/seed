@@ -34,7 +34,8 @@ sd prime --install claude
 ```
 
 This adds a `SessionStart` hook to `.claude/settings.local.json` so that agents
-are primed with sd context at the start of each session.
+are primed with sd context at the start of each session. Restart Claude Code
+after installing for the hook to take effect.
 
 ## Details
 
