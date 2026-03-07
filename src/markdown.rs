@@ -165,6 +165,20 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
             Event::Code(code) => {
                 buf.push_str(&format!("{CODE_BG} {code} {Reset}"));
             }
+            Event::Rule => {
+                flush_paragraph(&mut buf, &mut out, width, 0);
+                // Collapse the preceding blank line so the rule sits tight
+                if out.ends_with("\n\n") {
+                    out.pop();
+                }
+                let rule_width = width / 3;
+                let pad = (width - rule_width) / 2;
+                out.push_str(&format!(
+                    "{}{DIM}{}{Reset}\n\n",
+                    " ".repeat(pad),
+                    "▁".repeat(rule_width)
+                ));
+            }
             Event::SoftBreak | Event::HardBreak => buf.push(' '),
             Event::Html(html) | Event::InlineHtml(html) => buf.push_str(&html),
             _ => {}
@@ -509,5 +523,17 @@ mod tests {
                 line,
             );
         }
+    }
+
+    #[test]
+    fn renders_horizontal_rule() {
+        let result = render("Above\n\n---\n\nBelow", Some(90));
+        assert!(result.contains("Above"));
+        assert!(result.contains("Below"));
+        let rule_line = result.lines().find(|l| l.contains("▁")).unwrap();
+        // Centered at 1/3 of MAX_WIDTH (prose cap)
+        let w = MAX_WIDTH / 3;
+        let pad = (MAX_WIDTH - w) / 2;
+        assert_eq!(visible_width(rule_line), w + pad);
     }
 }
