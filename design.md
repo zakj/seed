@@ -190,6 +190,7 @@ External system integration (GitHub Issues, Linear, Jira). Planned architecture:
 - **Error handling**: `thiserror` enum, `?` propagation, structured JSON errors
   with `--json`
 - **Terminal output**: `visible_width()` strips ANSI for layout math; width
-  capped at 80
+  capped at 80; `ActiveStyles` in `term.rs` replays raw SGR sequences across
+  line breaks so background/color styles survive wrapping
 - **Testing**: integration tests via `assert_cmd` in `tests/cli.rs`; unit tests
   in `markdown.rs`

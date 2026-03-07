@@ -28,7 +28,6 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
     let mut buf = String::new();
     let mut code_lines: Vec<String> = Vec::new();
     let mut in_code_block = false;
-    let mut in_link = false;
     let mut in_list_item = false;
     let mut list_depth: usize = 0;
     let mut in_blockquote = false;
@@ -139,14 +138,12 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
             Event::Start(Tag::Strong) => buf.push_str(BOLD_ON),
             Event::End(TagEnd::Strong) => buf.push_str(BOLD_OFF),
             Event::Start(Tag::Link { dest_url, .. }) => {
-                in_link = true;
                 buf.push_str(&format!(
                     "{LINK_START}{dest_url}{LINK_END}{}",
                     LINK_COLOR.render()
                 ));
             }
             Event::End(TagEnd::Link) => {
-                in_link = false;
                 buf.push_str(&format!(
                     "{}{LINK_START}{LINK_END}",
                     LINK_COLOR.render_reset()
@@ -155,15 +152,12 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
             Event::Text(text) => {
                 if in_code_block {
                     code_lines.extend(text.lines().map(String::from));
-                } else if in_link {
-                    // Non-breaking spaces keep link text as one word for wrapping
-                    buf.push_str(&text.replace(' ', "\u{00a0}"));
                 } else {
                     buf.push_str(&text);
                 }
             }
             Event::Code(code) => {
-                buf.push_str(&format!("{CODE_BG} {code} {Reset}"));
+                buf.push_str(&format!("{CODE_BG}\u{00a0}{code}\u{00a0}{Reset}"));
             }
             Event::Rule => {
                 flush_paragraph(&mut buf, &mut out, width, 0);
@@ -508,6 +502,26 @@ mod tests {
                 .all(|l| visible_width(l) <= MAX_WIDTH),
             "prose should wrap at MAX_WIDTH"
         );
+    }
+
+    #[test]
+    fn inline_code_style_restored_across_wrap() {
+        // When inline code wraps, each line must have matching bg and reset
+        let text = "Start `code that is long enough to wrap across lines` end.";
+        let result = render(text, Some(30));
+        let code_bg = format!("{CODE_BG}");
+        let reset = format!("{Reset}");
+        let styled_lines: Vec<&str> = result
+            .lines()
+            .filter(|l| l.contains(&code_bg) || l.contains(&reset))
+            .collect();
+        assert!(!styled_lines.is_empty());
+        for line in &styled_lines {
+            assert!(
+                line.contains(&code_bg) && line.contains(&reset),
+                "each styled line needs both bg and reset: {line:?}",
+            );
+        }
     }
 
     #[test]
