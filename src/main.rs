@@ -371,10 +371,8 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
 
     if cli.json {
         let mut value = serde_json::to_value(&task)?;
-        if !children.is_empty() {
-            let ids: Vec<TaskId> = children.iter().map(|c| c.id).collect();
-            value["children"] = serde_json::to_value(ids)?;
-        }
+        let ids: Vec<TaskId> = children.iter().map(|c| c.id).collect();
+        value["children"] = serde_json::to_value(ids)?;
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
@@ -425,7 +423,7 @@ fn cmd_list(
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(display, &done_ids))?
+            serde_json::to_string_pretty(&prepare_json(display, &done_ids, &tasks))?
         );
     } else {
         print!("{}", format::format_task_list(display, flat, &done_ids));
@@ -732,7 +730,7 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(&ready, &done_ids))?
+            serde_json::to_string_pretty(&prepare_json(&ready, &done_ids, &all_tasks))?
         );
     } else if ready.is_empty() {
         println!("No tasks ready.");
@@ -805,8 +803,23 @@ fn normalize_description(s: &str) -> Option<String> {
     }
 }
 
-/// Strip resolved deps so agents don't see false blockers.
-fn prepare_json(tasks: &[impl std::borrow::Borrow<Task>], done_ids: &HashSet<TaskId>) -> Vec<Task> {
+fn children_map(all_tasks: &[Task]) -> HashMap<TaskId, Vec<TaskId>> {
+    let mut map: HashMap<TaskId, Vec<TaskId>> = HashMap::new();
+    for t in all_tasks {
+        if let Some(pid) = t.parent {
+            map.entry(pid).or_default().push(t.id);
+        }
+    }
+    map
+}
+
+/// Strip resolved deps and inject children IDs so agents get the full task graph.
+fn prepare_json(
+    tasks: &[impl std::borrow::Borrow<Task>],
+    done_ids: &HashSet<TaskId>,
+    all_tasks: &[Task],
+) -> Vec<serde_json::Value> {
+    let children = children_map(all_tasks);
     let mut tasks: Vec<Task> = tasks
         .iter()
         .map(|t| {
@@ -817,6 +830,15 @@ fn prepare_json(tasks: &[impl std::borrow::Borrow<Task>], done_ids: &HashSet<Tas
         .collect();
     tasks.sort_by(|a, b| a.sort_key(done_ids).cmp(&b.sort_key(done_ids)));
     tasks
+        .into_iter()
+        .map(|t| {
+            let id = t.id;
+            let mut v = serde_json::to_value(t).unwrap();
+            let child_ids = children.get(&id).map(Vec::as_slice).unwrap_or_default();
+            v["children"] = serde_json::to_value(child_ids).unwrap();
+            v
+        })
+        .collect()
 }
 
 fn validate_completion(
