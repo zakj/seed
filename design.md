@@ -127,8 +127,9 @@ sd tui                           Interactive terminal UI (planned)
 ### Agent-friendly design
 
 - `--json` on every command: stable schema, typed values. `sd show` returns an
-  object; `sd list` / `sd next` return arrays. Resolved deps are stripped from
-  JSON output so agents don't see false blockers.
+  object; `sd list` / `sd next` return arrays of full task objects including
+  `children` IDs, so one call gives the full task graph. Resolved deps are
+  stripped from JSON output so agents don't see false blockers.
 - `-q` / `--quiet`: output just the ID for scripting
 - Predictable exit codes: 0 success, 1 error, 2 usage (via clap)
 - Errors to stderr, structured as JSON when `--json` is active

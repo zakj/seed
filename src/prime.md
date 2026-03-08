@@ -1,6 +1,6 @@
 # Task Tracking with sd
 
-This project uses `sd` for task management. Run `sd <command> --help` for detailed flag reference. Use `--json` on any command for machine-readable output.
+This project uses `sd` for task management. Run `sd <command> --help` for detailed flag reference. Always use `--json` when reading task data programmatically.
 
 ## Workflow
 
@@ -27,4 +27,4 @@ This project uses `sd` for task management. Run `sd <command> --help` for detail
 - Task descriptions define *what* needs doing; use `sd log` for decisions, rationale, and outcomes
 - Use single quotes for shell arguments containing backticks to avoid command substitution
 - Always use long flags (e.g. `--parent`, `--priority`) — short flags can be ambiguous (`-p` is `--priority`, not `--parent`)
-- `--json` output: `sd show` returns an object (with `children` IDs); `sd list` and `sd next` return arrays
+- `--json` output: `sd show` returns an object; `sd list` and `sd next` return arrays of full task objects (descriptions, logs, `children` IDs, everything). Prefer `sd list --json` over looping `sd show` — one call gives you the full task graph.
