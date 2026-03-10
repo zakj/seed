@@ -9,6 +9,7 @@ use crate::task::{
     validate_parent,
 };
 
+#[derive(Default)]
 pub struct Edits {
     pub title: Option<String>,
     pub status: Option<Status>,

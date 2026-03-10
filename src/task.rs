@@ -232,6 +232,22 @@ pub struct Task {
 }
 
 impl Task {
+    pub const BLOCKED: Style = Style {
+        symbol: "⋯",
+        label: "blocked",
+        color: anstyle::AnsiColor::Red.on_default(),
+    };
+
+    pub fn indicator(&self, blocked: bool) -> Style {
+        if blocked {
+            return Self::BLOCKED;
+        }
+        match self.status {
+            Status::Todo if !self.priority.is_default() => self.priority.style(),
+            _ => self.status.style(),
+        }
+    }
+
     pub fn is_blocked(&self, done_ids: &HashSet<TaskId>) -> bool {
         self.status == Status::Todo
             && !self.depends.is_empty()

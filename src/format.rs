@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::markdown;
-use crate::task::{Status, Style, Task, TaskId};
+use crate::task::{Task, TaskId};
 use crate::term::{visible_width, wrap_words};
 
 // ANSI styles
@@ -16,13 +16,7 @@ const SYM_TREE_MID: &str = "├─";
 const SYM_TREE_END: &str = "└─";
 const SYM_TREE_PIPE: &str = "│";
 
-const BLOCKED: Style = Style {
-    symbol: "⋯",
-    label: "blocked",
-    color: anstyle::AnsiColor::Red.on_default(),
-};
-
-fn format_date(dt: &chrono::DateTime<chrono::Utc>) -> String {
+pub fn format_date(dt: &chrono::DateTime<chrono::Utc>) -> String {
     use chrono::Datelike;
     if dt.year() == chrono::Utc::now().year() {
         dt.format("%b %-d").to_string()
@@ -31,7 +25,7 @@ fn format_date(dt: &chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-fn format_datetime(dt: &chrono::DateTime<chrono::Utc>) -> String {
+pub fn format_datetime(dt: &chrono::DateTime<chrono::Utc>) -> String {
     use chrono::Datelike;
     if dt.year() == chrono::Utc::now().year() {
         dt.format("%b %-d %H:%M").to_string()
@@ -154,18 +148,8 @@ pub fn format_task_detail(
     out
 }
 
-fn indicator(task: &Task, blocked: bool) -> Style {
-    if blocked {
-        return BLOCKED;
-    }
-    match task.status {
-        Status::Todo if !task.priority.is_default() => task.priority.style(),
-        s => s.style(),
-    }
-}
-
 fn format_related(task: &Task, blocked: bool) -> String {
-    let style = indicator(task, blocked);
+    let style = task.indicator(blocked);
     if style.symbol.trim().is_empty() {
         format!("#{} {}", task.id, task.title)
     } else {
@@ -208,7 +192,7 @@ fn format_list_row(
 ) -> String {
     let task = row.task;
     let blocked = task.is_blocked(done_ids);
-    let style = indicator(task, blocked);
+    let style = task.indicator(blocked);
     let is_done = task.status.is_resolved();
 
     let id_str = format!("#{}", task.id);

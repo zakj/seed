@@ -1,10 +1,12 @@
 mod app;
 mod event;
+mod markdown;
 mod ui;
 
 use std::io;
 use std::panic;
 
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -15,7 +17,7 @@ use crate::store::Store;
 
 pub fn run(store: Store) -> Result<(), Error> {
     enable_raw_mode()?;
-    execute!(io::stderr(), EnterAlternateScreen)?;
+    execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
 
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
@@ -38,7 +40,7 @@ fn run_loop(
     mut app: app::App,
 ) -> Result<(), Error> {
     loop {
-        terminal.draw(|frame| ui::draw(frame, &app))?;
+        terminal.draw(|frame| ui::draw(frame, &mut app))?;
         if let event::Action::Quit = event::handle_events(&mut app)? {
             return Ok(());
         }
@@ -47,6 +49,6 @@ fn run_loop(
 
 fn restore_terminal() -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(io::stderr(), LeaveAlternateScreen)?;
+    execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
