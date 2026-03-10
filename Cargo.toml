@@ -7,6 +7,10 @@ edition = "2024"
 name = "sd"
 path = "src/main.rs"
 
+[features]
+default = ["tui"]
+tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:tui-input", "dep:ratatui-macros"]
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 fs2 = "0.4"
@@ -23,6 +27,10 @@ anstyle = "1"
 anstream = "0.6"
 unicode-width = "0.2"
 tempfile = "3"
+ratatui = { version = "0.30", optional = true, features = ["crossterm"] }
+tui-tree-widget = { version = "0.24", optional = true }
+tui-input = { version = "0.15", optional = true }
+ratatui-macros = { version = "0.7", optional = true }
 
 [profile.release]
 lto = true

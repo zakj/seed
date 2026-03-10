@@ -5,6 +5,8 @@ mod ops;
 mod store;
 mod task;
 mod term;
+#[cfg(feature = "tui")]
+mod tui;
 
 use std::collections::HashSet;
 use std::env;
@@ -141,6 +143,11 @@ whose children are all complete. Sorted by priority."
     /// Generate shell completions
     #[command(hide = true)]
     Completions { shell: clap_complete::Shell },
+
+    /// Interactive terminal UI
+    #[cfg(feature = "tui")]
+    #[command(alias = "t")]
+    Tui,
 }
 
 #[derive(clap::Args)]
@@ -298,6 +305,11 @@ fn run(cli: &Cli) -> Result<(), Error> {
         Command::Completions { shell } => {
             clap_complete::generate(*shell, &mut Cli::command(), "sd", &mut std::io::stdout());
             Ok(())
+        }
+        #[cfg(feature = "tui")]
+        Command::Tui => {
+            let store = find_store()?;
+            tui::run(store)
         }
     }
 }

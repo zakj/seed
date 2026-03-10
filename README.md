@@ -22,7 +22,8 @@ sd start 1                  # mark in-progress
 sd done 1                   # mark done
 ```
 
-Use `--json` on any command for structured output.
+Use `--json` on any command for structured output. `sd tui` (or `sd t`) launches
+an interactive terminal interface for browsing and managing tasks.
 
 ## AI agent integration
 

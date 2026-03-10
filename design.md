@@ -121,7 +121,7 @@ sd prime                         Static markdown guide for AI agent onboarding
 sd prime --install <agent>       Install agent hooks
 sd archive                       Move resolved tasks to archive (optional age cutoff)
 sd completions <shell>           Generate shell completions
-sd tui                           Interactive terminal UI (planned)
+sd tui                           Interactive terminal UI (alias: sd t)
 ```
 
 ### Agent-friendly design
@@ -143,9 +143,10 @@ sd tui                           Interactive terminal UI (planned)
 - `sd start` / `sd done` / `sd drop` as status shorthands
 - `sd tui` for browsing and light editing
 
-## TUI (planned)
+## TUI
 
-Lightweight interactive interface. Scope:
+Lightweight interactive interface behind the `tui` feature flag (default on).
+Built on ratatui with crossterm backend. Scope:
 
 - View tasks in tree or flat list
 - Filter by status, priority, labels
@@ -180,6 +181,7 @@ External system integration (GitHub Issues, Linear, Jira). Planned architecture:
 
 - **Language**: Rust
 - **CLI**: clap (derive API)
+- **TUI**: ratatui + crossterm (optional, `tui` feature flag)
 - **Serialization**: kdl-rs for disk, serde_json for --json output
 - **Distribution**: single static binary
 
