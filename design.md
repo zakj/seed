@@ -153,9 +153,10 @@ Built on ratatui with crossterm backend. Scope:
 - Navigate with keyboard (vim-style)
 - Change status and priority inline
 - View full task detail in a pane
+- Create tasks (`a` for root, `A` for child of selected)
+- Edit task titles inline (`e`)
 
-Not full CRUD — task creation, editing descriptions, managing dependencies go
-through the CLI.
+Descriptions, dependencies, and other fields are managed through the CLI.
 
 ## Agent Priming
 

@@ -125,6 +125,13 @@ fn handle_tree_key(app: &mut App, code: KeyCode) -> Action {
                 });
             }
         }
+        KeyCode::Char('a') => {
+            create_and_edit_task(app, None);
+        }
+        KeyCode::Char('A') => {
+            let parent = app.selected_task().map(|t| t.id);
+            create_and_edit_task(app, parent);
+        }
         _ => {}
     }
     if app.tree_state.selected() != prev {
@@ -178,6 +185,33 @@ fn detail_dep_hit(app: &App, row: u16) -> Option<TaskId> {
         .iter()
         .find(|(line, _)| *line == content_line)
         .map(|(_, id)| *id)
+}
+
+fn create_and_edit_task(app: &mut App, parent: Option<TaskId>) {
+    let placeholder = "New task".to_string();
+    if let Ok(task) = ops::create_task(
+        &app.store,
+        placeholder,
+        None,
+        std::iter::empty(),
+        parent,
+        &[],
+        None,
+    ) {
+        let new_id = task.id;
+        if app.reload().is_ok() {
+            if let Some(parent_id) = parent {
+                let path = app::identifier_path(parent_id, &app.parent_map);
+                app.tree_state.open(path);
+            }
+            select_task(app, new_id);
+            app.edit_state = Some(EditState {
+                task_id: new_id,
+                input: Input::new(String::new()),
+                error: None,
+            });
+        }
+    }
 }
 
 fn select_task(app: &mut App, id: TaskId) {
