@@ -218,7 +218,8 @@ fn format_related_spans(
     }
 }
 
-/// Count visual lines after word-wrapping (matching `Wrap { trim: false }` behavior).
+/// Approximate visual line count after wrapping. Uses character-width ceiling
+/// division, which can undercount vs ratatui's word-boundary wrapping.
 fn wrapped_line_count(text: &Text, width: u16) -> usize {
     let w = width as usize;
     if w == 0 {
@@ -240,6 +241,9 @@ fn wrapped_line_count(text: &Text, width: u16) -> usize {
 fn draw_edit_popup(frame: &mut Frame, app: &App) {
     let edit = app.edit_state.as_ref().unwrap();
     let area = frame.area();
+    if area.height < 5 || area.width < 10 {
+        return;
+    }
 
     let width = (area.width * 3 / 5).clamp(30, 80).min(area.width);
     let height = if edit.error.is_some() { 4 } else { 3 };

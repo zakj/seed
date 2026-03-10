@@ -76,7 +76,11 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
                 app.edit_state = Some(edit);
                 return Action::Continue;
             }
-            let _ = app.reload();
+            if let Err(e) = app.reload() {
+                edit.error = Some(e.to_string());
+                app.edit_state = Some(edit);
+                return Action::Continue;
+            }
         }
         KeyCode::Esc => {}
         _ => {

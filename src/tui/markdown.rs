@@ -124,8 +124,11 @@ pub fn render(text: &str, width: usize) -> Text<'static> {
                     Style::new().add_modifier(Modifier::DIM),
                 )));
             }
-            Event::SoftBreak | Event::HardBreak => {
+            Event::SoftBreak => {
                 spans.push(Span::raw(" "));
+            }
+            Event::HardBreak => {
+                flush_line(&mut spans, &mut lines);
             }
             Event::Html(html) | Event::InlineHtml(html) => {
                 spans.push(Span::styled(html.to_string(), current_style(&style_stack)));
