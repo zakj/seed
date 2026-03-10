@@ -48,7 +48,8 @@ fn focused_border_style(panel: Panel, focused: Panel) -> Style {
 }
 
 fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
-    let items = app::build_tree_items(&app.tasks, &app.done_ids, &app.children_map);
+    let inner_width = area.width.saturating_sub(2);
+    let items = app::build_tree_items(&app.tasks, &app.done_ids, &app.children_map, inner_width);
     let tree = Tree::new(&items)
         .expect("task IDs are unique")
         .block(
@@ -63,8 +64,8 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
         )
-        .node_closed_symbol("▶ ")
-        .node_open_symbol("▼ ")
+        .node_closed_symbol("▸ ")
+        .node_open_symbol("▾ ")
         .node_no_children_symbol("  ");
     frame.render_stateful_widget(tree, area, &mut app.tree_state);
 }

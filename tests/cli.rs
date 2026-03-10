@@ -73,8 +73,12 @@ fn add_with_parent_and_deps() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicates::str::contains("Parent:\x1b[0m #1 Parent"))
-        .stdout(predicates::str::contains("Depends on:\x1b[0m #2 Dep"));
+        .stdout(predicates::str::contains(
+            "Parent:\x1b[0m ○\x1b[0m #1 Parent",
+        ))
+        .stdout(predicates::str::contains(
+            "Depends on:\x1b[0m ○\x1b[0m #2 Dep",
+        ));
 }
 
 #[test]

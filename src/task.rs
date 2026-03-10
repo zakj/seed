@@ -62,9 +62,9 @@ impl Status {
         use anstyle::AnsiColor;
         match self {
             Self::Todo => Style {
-                symbol: " ",
+                symbol: "○",
                 label: "todo",
-                color: AnsiColor::Yellow.on_default(),
+                color: anstyle::Style::new(),
             },
             Self::InProgress => Style {
                 symbol: "●",

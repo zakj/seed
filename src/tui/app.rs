@@ -170,8 +170,9 @@ pub fn build_tree_items<'a>(
     tasks: &'a [Task],
     done_ids: &HashSet<TaskId>,
     children_map: &ChildrenMap,
+    inner_width: u16,
 ) -> Vec<TreeItem<'a, TaskId>> {
-    build_tree_children(None, children_map, tasks, done_ids)
+    build_tree_children(None, children_map, tasks, done_ids, inner_width, 0)
 }
 
 fn build_tree_children<'a>(
@@ -179,6 +180,8 @@ fn build_tree_children<'a>(
     children_map: &ChildrenMap,
     tasks: &'a [Task],
     done_ids: &HashSet<TaskId>,
+    inner_width: u16,
+    depth: usize,
 ) -> Vec<TreeItem<'a, TaskId>> {
     let Some(indices) = children_map.get(&parent) else {
         return Vec::new();
@@ -187,8 +190,15 @@ fn build_tree_children<'a>(
         .iter()
         .map(|&idx| {
             let task = &tasks[idx];
-            let grandchildren = build_tree_children(Some(task.id), children_map, tasks, done_ids);
-            let text = task_line(task, done_ids);
+            let grandchildren = build_tree_children(
+                Some(task.id),
+                children_map,
+                tasks,
+                done_ids,
+                inner_width,
+                depth + 1,
+            );
+            let text = task_line(task, done_ids, inner_width, depth);
             if grandchildren.is_empty() {
                 TreeItem::new_leaf(task.id, text)
             } else {
@@ -239,39 +249,62 @@ pub fn identifier_path(id: TaskId, parent_map: &HashMap<TaskId, TaskId>) -> Vec<
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-fn task_line<'a>(task: &'a Task, done_ids: &HashSet<TaskId>) -> Line<'a> {
+fn task_line<'a>(
+    task: &'a Task,
+    done_ids: &HashSet<TaskId>,
+    inner_width: u16,
+    depth: usize,
+) -> Line<'a> {
+    use unicode_width::UnicodeWidthStr;
+
     let indicator = task.indicator(task.is_blocked(done_ids));
     let resolved = task.status.is_resolved();
+    let dim = Style::new().add_modifier(Modifier::DIM);
 
-    let mut spans = Vec::new();
+    let id_str = format!("#{}", task.id);
+    // Content width: inner panel width minus indent (2*depth) minus node symbol (2)
+    let content_width = (inner_width as usize).saturating_sub(2 * depth + 2);
+    let indicator_w = 2; // symbol + space
+    let id_w = id_str.len();
+    // Reserve space for at least: indicator + 1 space + id
+    let title_max = content_width.saturating_sub(indicator_w + 1 + id_w);
+    let title_w = UnicodeWidthStr::width(task.title.as_str());
 
-    // Status/priority indicator
-    if indicator.symbol.trim().is_empty() {
-        spans.push(Span::raw("  "));
+    let title_style = if resolved { dim } else { Style::default() };
+
+    let (title_span, padding) = if title_w > title_max {
+        let mut truncated = String::new();
+        let mut w = 0;
+        for ch in task.title.chars() {
+            let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if w + cw > title_max.saturating_sub(1) {
+                break;
+            }
+            truncated.push(ch);
+            w += cw;
+        }
+        truncated.push('…');
+        let actual_w = UnicodeWidthStr::width(truncated.as_str());
+        let pad = content_width
+            .saturating_sub(indicator_w + actual_w + id_w)
+            .max(1);
+        (Span::styled(truncated, title_style), pad)
     } else {
-        spans.push(Span::styled(
+        let pad = content_width
+            .saturating_sub(indicator_w + title_w + id_w)
+            .max(1);
+        (Span::styled(task.title.as_str(), title_style), pad)
+    };
+
+    Line::from(vec![
+        Span::styled(
             format!("{} ", indicator.symbol),
             anstyle_to_ratatui(indicator.color),
-        ));
-    }
-
-    // Task ID (always dim)
-    spans.push(Span::styled(
-        format!("#{} ", task.id),
-        Style::new().add_modifier(Modifier::DIM),
-    ));
-
-    // Title
-    if resolved {
-        spans.push(Span::styled(
-            task.title.as_str(),
-            Style::new().add_modifier(Modifier::DIM),
-        ));
-    } else {
-        spans.push(Span::raw(task.title.as_str()));
-    }
-
-    Line::from(spans)
+        ),
+        title_span,
+        Span::raw(" ".repeat(padding)),
+        Span::styled(id_str, dim),
+    ])
 }
 
 pub fn anstyle_to_ratatui(s: anstyle::Style) -> Style {

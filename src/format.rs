@@ -165,48 +165,22 @@ struct ListRow<'a> {
     tree: String,
 }
 
-fn tree_depth(parent_map: &HashMap<TaskId, TaskId>) -> usize {
-    let mut max = 0;
-    for &id in parent_map.keys() {
-        let mut d = 0;
-        let mut current = id;
-        let mut visited = HashSet::new();
-        visited.insert(current);
-        while let Some(&p) = parent_map.get(&current) {
-            if !visited.insert(p) {
-                break;
-            }
-            d += 1;
-            current = p;
-        }
-        max = max.max(d);
-    }
-    max
-}
-
-fn format_list_row(
-    row: &ListRow,
-    id_width: usize,
-    tree_width: usize,
-    done_ids: &HashSet<TaskId>,
-) -> String {
+fn format_list_row(row: &ListRow, done_ids: &HashSet<TaskId>) -> String {
     let task = row.task;
     let blocked = task.is_blocked(done_ids);
     let style = task.indicator(blocked);
-    let is_done = task.status.is_resolved();
+    let resolved = task.status.is_resolved();
 
     let id_str = format!("#{}", task.id);
-    let col1_width = tree_width + id_width + 1;
-    let col1_pad = " ".repeat(col1_width.saturating_sub(visible_width(&row.tree) + id_str.len()));
 
-    if is_done {
+    if resolved {
         format!(
-            "{DIM}{}{id_str}{col1_pad}  {}{}{RESET}{DIM} {}{RESET}\n",
+            "{DIM}{}{RESET}{}{}{RESET} {DIM}{id_str} {}{RESET}\n",
             row.tree, style.color, style.symbol, task.title
         )
     } else {
         format!(
-            "{DIM}{}{RESET}{id_str}{col1_pad}  {}{}{RESET} {}\n",
+            "{DIM}{}{RESET}{}{}{RESET} {id_str} {}\n",
             row.tree, style.color, style.symbol, task.title
         )
     }
@@ -224,11 +198,6 @@ pub fn format_task_list(tasks: &[Task], flat: bool, done_ids: &HashSet<TaskId>) 
 }
 
 fn format_flat(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
-    let id_width = tasks
-        .iter()
-        .map(|t| t.id.to_string().len())
-        .max()
-        .unwrap_or(1);
     let mut sorted: Vec<&Task> = tasks.iter().collect();
     sorted.sort_by(|a, b| a.sort_key(done_ids).cmp(&b.sort_key(done_ids)));
     let mut out = String::new();
@@ -237,7 +206,7 @@ fn format_flat(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
             task,
             tree: String::new(),
         };
-        out.push_str(&format_list_row(&row, id_width, 0, done_ids));
+        out.push_str(&format_list_row(&row, done_ids));
     }
     out
 }
@@ -245,14 +214,9 @@ fn format_flat(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
 fn format_tree(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
     let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
     let mut children_map: HashMap<Option<TaskId>, Vec<&Task>> = HashMap::new();
-    let mut parent_map: HashMap<TaskId, TaskId> = HashMap::new();
     for task in tasks {
-        // Treat tasks with missing parents as roots
         let parent = task.parent.filter(|p| task_ids.contains(p));
         children_map.entry(parent).or_default().push(task);
-        if let Some(p) = parent {
-            parent_map.insert(task.id, p);
-        }
     }
 
     for siblings in children_map.values_mut() {
@@ -262,17 +226,9 @@ fn format_tree(tasks: &[Task], done_ids: &HashSet<TaskId>) -> String {
     let mut rows: Vec<ListRow> = Vec::new();
     collect_tree_rows(&children_map, None, "", &mut rows);
 
-    let id_width = tasks
-        .iter()
-        .map(|t| t.id.to_string().len())
-        .max()
-        .unwrap_or(1);
-    let depth = tree_depth(&parent_map);
-    let tree_width = depth * 3;
-
     let mut out = String::new();
     for row in &rows {
-        out.push_str(&format_list_row(row, id_width, tree_width, done_ids));
+        out.push_str(&format_list_row(row, done_ids));
     }
     out
 }
