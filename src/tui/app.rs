@@ -36,6 +36,8 @@ pub struct App {
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
     pub edit_state: Option<EditState>,
+    /// Transient error message, cleared on next keypress.
+    pub error: Option<String>,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
 }
@@ -62,6 +64,7 @@ impl App {
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
             edit_state: None,
+            error: None,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
         };

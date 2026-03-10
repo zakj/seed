@@ -10,6 +10,7 @@ use crate::task::TaskId;
 pub enum Action {
     Continue,
     Quit,
+    EditDescription(TaskId),
 }
 
 pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
@@ -20,6 +21,7 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
     if app.edit_state.is_some() {
         return Ok(handle_edit_event(app, &ev));
     }
+    app.error = None;
     match ev {
         Event::Key(key) if key.kind == KeyEventKind::Press => Ok(handle_key(app, key.code)),
         Event::Mouse(mouse) => {
@@ -123,6 +125,11 @@ fn handle_tree_key(app: &mut App, code: KeyCode) -> Action {
                     input: Input::new(task.title.clone()),
                     error: None,
                 });
+            }
+        }
+        KeyCode::Char('E') => {
+            if let Some(task) = app.selected_task() {
+                return Action::EditDescription(task.id);
             }
         }
         KeyCode::Char('a') => {

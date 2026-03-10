@@ -279,12 +279,22 @@ fn draw_edit_popup(frame: &mut Frame, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
+    if let Some(error) = &app.error {
+        let line = Line::from(vec![
+            Span::raw(" "),
+            Span::styled(error.as_str(), Style::new().fg(Color::Red)),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
+        return;
+    }
     let keys: &[(&str, &str)] = match app.focused_panel {
         Panel::Tree => &[
             ("j/k", "navigate"),
             ("h/l", "collapse/expand"),
             ("Space", "toggle"),
             ("e", "edit"),
+            ("E", "describe"),
+            ("a/A", "add/add child"),
             ("g/G", "top/bottom"),
             ("Tab", "detail"),
             ("q", "quit"),
