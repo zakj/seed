@@ -1164,6 +1164,43 @@ fn edit_empty_description_clears() {
 }
 
 #[test]
+fn list_include_archived_strips_resolved_deps() {
+    let dir = init_project();
+    // Task 1 is a dep, task 2 depends on it
+    sd().args(["add", "Dep"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Task", "--dep", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["done", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["archive"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // With -a, the archived dep should still be stripped from JSON depends
+    let out = sd()
+        .args(["list", "-a", "--json"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let tasks: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    let task2 = tasks.iter().find(|t| t["title"] == "Task").unwrap();
+    let deps = task2["depends"].as_array();
+    assert!(
+        deps.is_none() || deps.unwrap().is_empty(),
+        "resolved archived dep should be stripped from JSON output"
+    );
+}
+
+#[test]
 fn log_nonexistent_task_fails() {
     let dir = init_project();
     sd().args(["log", "999", "note"])

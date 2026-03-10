@@ -590,3 +590,34 @@ fn has_cycle(
     in_stack.remove(&id);
     false
 }
+
+pub fn validate_completion(
+    all_tasks: &[Task],
+    archived_ids: &HashSet<TaskId>,
+    task: &Task,
+) -> Result<(), Error> {
+    let task_map: HashMap<TaskId, &Task> = all_tasks.iter().map(|t| (t.id, t)).collect();
+
+    let unmet: Vec<TaskId> = task
+        .depends
+        .iter()
+        .filter(|dep_id| match task_map.get(dep_id) {
+            Some(dep) => !dep.status.is_resolved(),
+            None => !archived_ids.contains(dep_id),
+        })
+        .copied()
+        .collect();
+    if !unmet.is_empty() {
+        return Err(Error::UnmetDependencies(unmet));
+    }
+
+    let incomplete: Vec<TaskId> = all_tasks
+        .iter()
+        .filter(|t| t.parent == Some(task.id) && !t.status.is_resolved())
+        .map(|t| t.id)
+        .collect();
+    if !incomplete.is_empty() {
+        return Err(Error::IncompleteChildren(incomplete));
+    }
+    Ok(())
+}

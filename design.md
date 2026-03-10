@@ -185,6 +185,10 @@ External system integration (GitHub Issues, Linear, Jira). Planned architecture:
 
 ## Code Patterns
 
+- **Ops module**: core business logic lives in `ops.rs`, decoupled from CLI.
+  Most CLI handlers in `main.rs` are thin wrappers that call ops functions and
+  format output. This allows future consumers (e.g. TUI) to share the same
+  logic.
 - **File-per-task storage**: KDL on disk, JSON via `--json`, serde for both
 - **Atomic writes**: temp file + rename for crash safety; mtime-based optimistic
   locking
