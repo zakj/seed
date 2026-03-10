@@ -1,7 +1,13 @@
+pub(crate) mod ir;
+
+pub use ir::parse;
+
 use anstyle::{Ansi256Color, AnsiColor, Color, Reset, Style};
-use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::Alignment;
 
 use crate::term::{visible_width, wrap_words};
+
+use ir::{Block, Inline, ListKind};
 
 const MAX_WIDTH: usize = 80;
 const BOLD: Style = Style::new().bold();
@@ -23,52 +29,43 @@ const LINK_END: &str = "\x1b\\";
 pub fn render(text: &str, terminal_width: Option<usize>) -> String {
     let term_width = terminal_width.unwrap_or(MAX_WIDTH);
     let width = term_width.min(MAX_WIDTH);
-    let parser = Parser::new_ext(text, Options::ENABLE_TABLES);
+    let blocks = ir::parse(text);
     let mut out = String::new();
-    let mut buf = String::new();
-    let mut code_lines: Vec<String> = Vec::new();
-    let mut in_code_block = false;
-    let mut in_list_item = false;
-    let mut list_depth: usize = 0;
-    let mut in_blockquote = false;
-    let mut table_alignments: Vec<Alignment> = Vec::new();
-    let mut table_rows: Vec<Vec<String>> = Vec::new();
-    let mut table_header_rows: usize = 0;
+    render_blocks(&blocks, &mut out, width, term_width, 0);
 
-    for event in parser {
-        match event {
-            Event::Start(Tag::Heading { .. }) => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
+    let trimmed = out.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}\n")
+    }
+}
+
+fn render_blocks(
+    blocks: &[Block],
+    out: &mut String,
+    width: usize,
+    term_width: usize,
+    depth: usize,
+) {
+    for block in blocks {
+        match block {
+            Block::Heading(level, inlines) => {
+                let hashes = "#".repeat(*level as usize);
+                let initial = format!("{DIM}{hashes}{Reset}{BOLD} ");
+                let subsequent = format!("{BOLD}{}", " ".repeat(hashes.len() + 1));
+                let text = render_inlines(inlines);
+                wrap_words(&text, out, width, &initial, &subsequent);
+                out.push_str(&format!("{Reset}\n"));
             }
-            Event::End(TagEnd::Heading(_)) => {
-                let line = std::mem::take(&mut buf);
-                out.push_str(&format!("{BOLD}{}{Reset}\n\n", line.trim()));
+            Block::Paragraph(inlines) => {
+                render_paragraph(inlines, out, width, "", "");
+                out.push('\n');
             }
-            Event::Start(Tag::Paragraph) => {}
-            Event::End(TagEnd::Paragraph) => {
-                if in_list_item {
-                    flush_list_item(&mut buf, &mut out, width, list_depth);
-                } else if in_blockquote {
-                    flush_blockquote(&mut buf, &mut out, width);
-                    out.push('\n');
-                } else {
-                    flush_paragraph(&mut buf, &mut out, width, 0);
-                    out.push('\n');
-                }
-            }
-            Event::Start(Tag::CodeBlock(_)) => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
-                in_code_block = true;
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                in_code_block = false;
-                let max_w = code_lines
-                    .iter()
-                    .map(|l| visible_width(l))
-                    .max()
-                    .unwrap_or(0);
-                for line in code_lines.drain(..) {
-                    let padding = max_w - visible_width(&line);
+            Block::Code(lines) => {
+                let max_w = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
+                for line in lines {
+                    let padding = max_w - visible_width(line);
                     out.push_str(&format!(
                         "{CODE_BG}  {line}{}  {Reset}\n",
                         " ".repeat(padding)
@@ -76,91 +73,80 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
                 }
                 out.push('\n');
             }
-            Event::Start(Tag::BlockQuote(_)) => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
-                in_blockquote = true;
+            Block::Quote(inner) => {
+                let bar = format!(" {DIM}▎{Reset} ");
+                let bar_width = visible_width(&bar);
+                let inner_width = width.saturating_sub(bar_width);
+                let mut buf = String::new();
+                render_blocks(inner, &mut buf, inner_width, term_width, depth + 1);
+                for line in buf.lines() {
+                    out.push_str(&bar);
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                out.push('\n');
             }
-            Event::End(TagEnd::BlockQuote(_)) => {
-                in_blockquote = false;
-            }
-            Event::Start(Tag::List(_)) => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
-                list_depth += 1;
-            }
-            Event::End(TagEnd::List(_)) => {
-                list_depth = list_depth.saturating_sub(1);
-                if list_depth == 0 {
+            Block::List(kind, items) => {
+                for (item_idx, item_blocks) in items.iter().enumerate() {
+                    let prefix = match kind {
+                        ListKind::Unordered => {
+                            let indent = depth * 4;
+                            format!("{}- ", " ".repeat(indent))
+                        }
+                        ListKind::Ordered(start) => {
+                            let num = start.saturating_add(item_idx as u64);
+                            let indent = depth * 4;
+                            format!("{}{}. ", " ".repeat(indent), num)
+                        }
+                    };
+                    let subsequent = " ".repeat(visible_width(&prefix));
+
+                    for (block_idx, item_block) in item_blocks.iter().enumerate() {
+                        match item_block {
+                            Block::Paragraph(inlines) => {
+                                let text = render_inlines(inlines);
+                                if !text.is_empty() {
+                                    if block_idx == 0 {
+                                        wrap_words(&text, out, width, &prefix, &subsequent);
+                                    } else {
+                                        wrap_words(&text, out, width, &subsequent, &subsequent);
+                                    }
+                                }
+                            }
+                            _ => {
+                                render_blocks(
+                                    std::slice::from_ref(item_block),
+                                    out,
+                                    width,
+                                    term_width,
+                                    depth + 1,
+                                );
+                            }
+                        }
+                    }
+                }
+                if depth == 0 {
                     out.push('\n');
                 }
             }
-            Event::Start(Tag::Item) => in_list_item = true,
-            Event::End(TagEnd::Item) => {
-                // Tight lists don't wrap items in paragraphs
-                flush_list_item(&mut buf, &mut out, width, list_depth);
-                in_list_item = false;
-            }
-            Event::Start(Tag::Table(alignments)) => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
-                table_alignments = alignments;
-            }
-            Event::End(TagEnd::Table) => {
-                flush_table(
-                    &table_rows,
-                    &table_alignments,
-                    table_header_rows,
-                    term_width,
-                    &mut out,
-                );
-                table_rows.clear();
-                table_alignments.clear();
-                table_header_rows = 0;
-            }
-            Event::Start(Tag::TableHead) => {
-                table_rows.push(Vec::new());
-            }
-            Event::End(TagEnd::TableHead) => {
-                table_header_rows = table_rows.len();
-            }
-            Event::Start(Tag::TableRow) => {
-                table_rows.push(Vec::new());
-            }
-            Event::End(TagEnd::TableRow) => {}
-            Event::Start(Tag::TableCell) => {
-                buf.clear();
-            }
-            Event::End(TagEnd::TableCell) => {
-                if let Some(row) = table_rows.last_mut() {
-                    row.push(std::mem::take(&mut buf));
+            Block::Table {
+                alignments,
+                header,
+                body,
+            } => {
+                // Convert inline cells to rendered strings for the table renderer
+                let mut rows: Vec<Vec<String>> = Vec::new();
+                for row in header {
+                    rows.push(row.iter().map(|cell| render_inlines(cell)).collect());
                 }
-            }
-            Event::Start(Tag::Emphasis) => buf.push_str(ITALIC_ON),
-            Event::End(TagEnd::Emphasis) => buf.push_str(ITALIC_OFF),
-            Event::Start(Tag::Strong) => buf.push_str(BOLD_ON),
-            Event::End(TagEnd::Strong) => buf.push_str(BOLD_OFF),
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                buf.push_str(&format!(
-                    "{LINK_START}{dest_url}{LINK_END}{}",
-                    LINK_COLOR.render()
-                ));
-            }
-            Event::End(TagEnd::Link) => {
-                buf.push_str(&format!(
-                    "{}{LINK_START}{LINK_END}",
-                    LINK_COLOR.render_reset()
-                ));
-            }
-            Event::Text(text) => {
-                if in_code_block {
-                    code_lines.extend(text.lines().map(String::from));
-                } else {
-                    buf.push_str(&text);
+                let header_rows = rows.len();
+                for row in body {
+                    rows.push(row.iter().map(|cell| render_inlines(cell)).collect());
                 }
+                flush_table(&rows, alignments, header_rows, term_width, out);
+                out.push('\n');
             }
-            Event::Code(code) => {
-                buf.push_str(&format!("{CODE_BG}\u{00a0}{code}\u{00a0}{Reset}"));
-            }
-            Event::Rule => {
-                flush_paragraph(&mut buf, &mut out, width, 0);
+            Block::Rule => {
                 // Collapse the preceding blank line so the rule sits tight
                 if out.ends_with("\n\n") {
                     out.pop();
@@ -173,18 +159,96 @@ pub fn render(text: &str, terminal_width: Option<usize>) -> String {
                     "▁".repeat(rule_width)
                 ));
             }
-            Event::SoftBreak | Event::HardBreak => buf.push(' '),
-            Event::Html(html) | Event::InlineHtml(html) => buf.push_str(&html),
-            _ => {}
         }
     }
-    flush_paragraph(&mut buf, &mut out, width, 0);
+}
 
-    let trimmed = out.trim_end();
-    if trimmed.is_empty() {
-        String::new()
-    } else {
-        format!("{trimmed}\n")
+fn render_inlines(inlines: &[Inline]) -> String {
+    let mut out = String::new();
+    for inline in inlines {
+        render_inline_into(inline, &mut out);
+    }
+    out
+}
+
+/// Render a paragraph, splitting at HardBreaks and wrapping each segment.
+fn render_paragraph(
+    inlines: &[Inline],
+    out: &mut String,
+    width: usize,
+    initial_indent: &str,
+    subsequent_indent: &str,
+) {
+    let has_hard_break = inlines.iter().any(|i| matches!(i, Inline::HardBreak));
+    if !has_hard_break {
+        let text = render_inlines(inlines);
+        if !text.is_empty() {
+            wrap_words(&text, out, width, initial_indent, subsequent_indent);
+        }
+        return;
+    }
+    // Split at HardBreaks and wrap each segment separately
+    let mut seg_start = 0;
+    let mut first = true;
+    for (i, inline) in inlines.iter().enumerate() {
+        if matches!(inline, Inline::HardBreak) {
+            if seg_start < i {
+                let text = render_inlines(&inlines[seg_start..i]);
+                if !text.is_empty() {
+                    let indent = if first {
+                        initial_indent
+                    } else {
+                        subsequent_indent
+                    };
+                    wrap_words(&text, out, width, indent, subsequent_indent);
+                    first = false;
+                }
+            }
+            seg_start = i + 1;
+        }
+    }
+    if seg_start < inlines.len() {
+        let text = render_inlines(&inlines[seg_start..]);
+        if !text.is_empty() {
+            let indent = if first {
+                initial_indent
+            } else {
+                subsequent_indent
+            };
+            wrap_words(&text, out, width, indent, subsequent_indent);
+        }
+    }
+}
+
+fn render_inline_into(inline: &Inline, out: &mut String) {
+    match inline {
+        Inline::Text(t) => out.push_str(t),
+        Inline::Code(c) => {
+            out.push_str(&format!("{CODE_BG}\u{00a0}{c}\u{00a0}{Reset}"));
+        }
+        Inline::Emphasis(inner) => {
+            out.push_str(ITALIC_ON);
+            out.push_str(&render_inlines(inner));
+            out.push_str(ITALIC_OFF);
+        }
+        Inline::Strong(inner) => {
+            out.push_str(BOLD_ON);
+            out.push_str(&render_inlines(inner));
+            out.push_str(BOLD_OFF);
+        }
+        Inline::Link { url, content } => {
+            out.push_str(&format!(
+                "{LINK_START}{url}{LINK_END}{}",
+                LINK_COLOR.render()
+            ));
+            out.push_str(&render_inlines(content));
+            out.push_str(&format!(
+                "{}{LINK_START}{LINK_END}",
+                LINK_COLOR.render_reset()
+            ));
+        }
+        Inline::SoftBreak | Inline::HardBreak => out.push(' '),
+        Inline::Html(html) => out.push_str(html),
     }
 }
 
@@ -203,61 +267,7 @@ fn flush_table(
         return;
     }
 
-    // Natural column widths from content, each capped at MAX_WIDTH for readability
-    let mut col_widths = vec![0usize; num_cols];
-    for row in rows {
-        for (i, cell) in row.iter().enumerate() {
-            if i < num_cols {
-                col_widths[i] = col_widths[i].max(visible_width(cell));
-            }
-        }
-    }
-    for w in col_widths.iter_mut() {
-        *w = (*w).min(MAX_WIDTH);
-    }
-
-    // Shrink columns to fit terminal width.
-    // Freeze columns that fit within a fair share; only shrink wider ones.
-    let overhead = 3 * num_cols + 1;
-    let budget = width.saturating_sub(overhead).max(num_cols);
-    let total: usize = col_widths.iter().sum();
-    if total > budget {
-        let mut frozen = vec![false; num_cols];
-        let mut frozen_total = 0usize;
-        loop {
-            let unfrozen: usize = frozen.iter().filter(|&&f| !f).count();
-            if unfrozen == 0 {
-                break;
-            }
-            let remaining = budget.saturating_sub(frozen_total);
-            let fair = remaining / unfrozen;
-            let mut changed = false;
-            for (i, w) in col_widths.iter_mut().enumerate() {
-                if !frozen[i] && *w <= fair {
-                    frozen[i] = true;
-                    frozen_total += *w;
-                    changed = true;
-                }
-            }
-            if !changed {
-                // All unfrozen columns exceed fair share; distribute remaining evenly
-                let remaining = budget.saturating_sub(frozen_total);
-                let unfrozen_indices: Vec<usize> = (0..num_cols).filter(|&i| !frozen[i]).collect();
-                let per_col = remaining / unfrozen_indices.len();
-                let mut extra = remaining % unfrozen_indices.len();
-                for &i in &unfrozen_indices {
-                    col_widths[i] = per_col
-                        + if extra > 0 {
-                            extra -= 1;
-                            1
-                        } else {
-                            0
-                        };
-                }
-                break;
-            }
-        }
-    }
+    let col_widths = compute_col_widths(rows, alignments, width);
 
     let border_row = |left: &str, mid: &str, right: &str| {
         let mut s = format!("{DIM}{left}");
@@ -333,7 +343,68 @@ fn flush_table(
     }
 
     out.push_str(&border_row("╰", "┴", "╯"));
-    out.push('\n');
+}
+
+/// Compute column widths for a table, fitting within the given width.
+pub(crate) fn compute_col_widths(
+    rows: &[Vec<String>],
+    alignments: &[Alignment],
+    width: usize,
+) -> Vec<usize> {
+    let num_cols = alignments.len();
+    let mut col_widths = vec![0usize; num_cols];
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i < num_cols {
+                col_widths[i] = col_widths[i].max(visible_width(cell));
+            }
+        }
+    }
+    for w in col_widths.iter_mut() {
+        *w = (*w).min(MAX_WIDTH);
+    }
+
+    // Shrink columns to fit terminal width.
+    let overhead = 3 * num_cols + 1;
+    let budget = width.saturating_sub(overhead).max(num_cols);
+    let total: usize = col_widths.iter().sum();
+    if total > budget {
+        let mut frozen = vec![false; num_cols];
+        let mut frozen_total = 0usize;
+        loop {
+            let unfrozen: usize = frozen.iter().filter(|&&f| !f).count();
+            if unfrozen == 0 {
+                break;
+            }
+            let remaining = budget.saturating_sub(frozen_total);
+            let fair = remaining / unfrozen;
+            let mut changed = false;
+            for (i, w) in col_widths.iter_mut().enumerate() {
+                if !frozen[i] && *w <= fair {
+                    frozen[i] = true;
+                    frozen_total += *w;
+                    changed = true;
+                }
+            }
+            if !changed {
+                let remaining = budget.saturating_sub(frozen_total);
+                let unfrozen_indices: Vec<usize> = (0..num_cols).filter(|&i| !frozen[i]).collect();
+                let per_col = remaining / unfrozen_indices.len();
+                let mut extra = remaining % unfrozen_indices.len();
+                for &i in &unfrozen_indices {
+                    col_widths[i] = per_col
+                        + if extra > 0 {
+                            extra -= 1;
+                            1
+                        } else {
+                            0
+                        };
+                }
+                break;
+            }
+        }
+    }
+    col_widths
 }
 
 fn wrap_to_lines(text: &str, width: usize) -> Vec<String> {
@@ -349,37 +420,6 @@ fn wrap_to_lines(text: &str, width: usize) -> Vec<String> {
         .split('\n')
         .map(String::from)
         .collect()
-}
-
-fn flush_paragraph(buf: &mut String, out: &mut String, width: usize, indent: usize) {
-    let indent_str = " ".repeat(indent);
-    flush_wrap(buf, out, width, &indent_str, &indent_str);
-}
-
-fn flush_blockquote(buf: &mut String, out: &mut String, width: usize) {
-    let bar = format!("{DIM}▎{Reset} ");
-    flush_wrap(buf, out, width, &bar, &bar);
-}
-
-fn flush_list_item(buf: &mut String, out: &mut String, width: usize, depth: usize) {
-    let indent = depth.saturating_sub(1) * 4;
-    let prefix = format!("{}- ", " ".repeat(indent));
-    let subsequent = format!("{}  ", " ".repeat(indent));
-    flush_wrap(buf, out, width, &prefix, &subsequent);
-}
-
-fn flush_wrap(
-    buf: &mut String,
-    out: &mut String,
-    width: usize,
-    initial_indent: &str,
-    subsequent_indent: &str,
-) {
-    if buf.is_empty() {
-        return;
-    }
-    let text = std::mem::take(buf);
-    wrap_words(&text, out, width, initial_indent, subsequent_indent);
 }
 
 #[cfg(test)]
@@ -411,7 +451,7 @@ mod tests {
     #[test]
     fn renders_heading_bold() {
         let result = render("# Title\n\nBody.", Some(80));
-        assert!(result.contains("\x1b[1mTitle\x1b[0m"));
+        assert!(result.contains(&format!("{DIM}#{Reset}{BOLD} Title")));
         assert!(result.contains("Body."));
     }
 
@@ -425,7 +465,7 @@ mod tests {
     #[test]
     fn blank_line_after_code_block() {
         let result = render("```\ncode\n```\n# Heading", Some(80));
-        assert!(result.contains(&format!("{Reset}\n\n{BOLD}Heading")));
+        assert!(result.contains(&format!("{Reset}\n\n{DIM}#{Reset}{BOLD} Heading")));
     }
 
     #[test]
@@ -434,6 +474,21 @@ mod tests {
         assert!(result.contains("- one"));
         assert!(result.contains("- two"));
         assert!(result.contains("- three"));
+    }
+
+    #[test]
+    fn renders_ordered_list() {
+        let result = render("1. first\n2. second\n3. third", Some(80));
+        assert!(result.contains("1. first"));
+        assert!(result.contains("2. second"));
+        assert!(result.contains("3. third"));
+    }
+
+    #[test]
+    fn renders_ordered_list_custom_start() {
+        let result = render("5. fifth\n6. sixth", Some(80));
+        assert!(result.contains("5. fifth"));
+        assert!(result.contains("6. sixth"));
     }
 
     #[test]

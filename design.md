@@ -195,12 +195,17 @@ External system integration (GitHub Issues, Linear, Jira). Planned architecture:
 - **File-per-task storage**: KDL on disk, JSON via `--json`, serde for both
 - **Atomic writes**: temp file + rename for crash safety; mtime-based optimistic
   locking
+- **Markdown rendering**: a shared IR (`markdown/ir.rs`) parses pulldown_cmark
+  events into `Block`/`Inline` trees. CLI (`markdown/mod.rs`) and TUI
+  (`tui/markdown.rs`) each walk the IR with their own rendering logic. Supports
+  headings, paragraphs, code blocks, blockquotes, ordered/unordered lists,
+  tables, rules, and inline formatting (bold, italic, code, links).
 - **ANSI styling**: `anstyle` crate for styles, raw escape codes only in
-  markdown renderer for nesting
+  CLI markdown renderer for nesting
 - **Error handling**: `thiserror` enum, `?` propagation, structured JSON errors
   with `--json`
 - **Terminal output**: `visible_width()` strips ANSI for layout math; width
   capped at 80; `ActiveStyles` in `term.rs` replays raw SGR sequences across
   line breaks so background/color styles survive wrapping
 - **Testing**: integration tests via `assert_cmd` in `tests/cli.rs`; unit tests
-  in `markdown.rs`
+  in `markdown/ir.rs` (parser) and `markdown/mod.rs` (CLI rendering)
