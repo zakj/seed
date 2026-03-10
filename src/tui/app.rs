@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant, SystemTime};
 
 use tui_input::Input;
 use tui_tree_widget::{TreeItem, TreeState};
@@ -35,6 +36,8 @@ pub struct App {
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
     pub edit_state: Option<EditState>,
+    pub dir_mtime: Option<SystemTime>,
+    pub last_refresh_check: Instant,
 }
 
 /// Sorted parent→children mapping. Cached to avoid rebuilding every frame.
@@ -59,7 +62,10 @@ impl App {
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
             edit_state: None,
+            dir_mtime: None,
+            last_refresh_check: Instant::now(),
         };
+        app.dir_mtime = app.current_mtime();
         // Start with all non-leaf nodes open.
         for &parent_id in app.children_map.keys().collect::<Vec<_>>() {
             if let Some(parent_id) = parent_id {
@@ -76,7 +82,43 @@ impl App {
         self.done_ids = ops::resolved_ids(&self.store, &self.tasks)?;
         self.children_map = build_children_map(&self.tasks, &self.done_ids);
         self.parent_map = build_parent_map(&self.tasks);
+        self.dir_mtime = self.current_mtime();
         Ok(())
+    }
+
+    /// Check tasks_dir and config.kdl mtime; reload if changed. Throttled to ~1s.
+    pub fn maybe_refresh(&mut self) {
+        if self.last_refresh_check.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        self.last_refresh_check = Instant::now();
+        let current = self.current_mtime();
+        if current == self.dir_mtime {
+            return;
+        }
+        if self.reload().is_ok() {
+            // Open any new parent nodes that appeared.
+            for &parent_id in self.children_map.keys().collect::<Vec<_>>() {
+                if let Some(parent_id) = parent_id {
+                    let path = identifier_path(parent_id, &self.parent_map);
+                    self.tree_state.open(path);
+                }
+            }
+        }
+    }
+
+    fn current_mtime(&self) -> Option<SystemTime> {
+        let tasks_mtime = std::fs::metadata(self.store.tasks_dir())
+            .and_then(|m| m.modified())
+            .ok();
+        let config_mtime = std::fs::metadata(self.store.root().join("config.kdl"))
+            .and_then(|m| m.modified())
+            .ok();
+        // Use the latest of the two.
+        match (tasks_mtime, config_mtime) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     pub fn selected_task(&self) -> Option<&Task> {

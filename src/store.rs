@@ -47,7 +47,7 @@ impl Store {
         &self.root
     }
 
-    fn tasks_dir(&self) -> PathBuf {
+    pub fn tasks_dir(&self) -> PathBuf {
         self.root.join("tasks")
     }
 

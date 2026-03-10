@@ -44,6 +44,7 @@ fn run_loop(
         if let event::Action::Quit = event::handle_events(&mut app)? {
             return Ok(());
         }
+        app.maybe_refresh();
     }
 }
 
