@@ -52,6 +52,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.priority_selection.is_some() {
         draw_priority_popup(frame, app);
     }
+    if app.show_help {
+        draw_help_overlay(frame, app);
+    }
 }
 
 fn focused_border_style(panel: Panel, focused: Panel) -> Style {
@@ -377,4 +380,111 @@ fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
         })
         .collect();
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
+    let area = frame.area();
+    if area.height < 10 || area.width < 30 {
+        return;
+    }
+
+    let width = (area.width * 3 / 5).max(30).min(area.width);
+    let height = (area.height * 4 / 5).max(10).min(area.height);
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+
+    let popup_area = Rect::new(x, y, width, height);
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Help ")
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::new().fg(Color::White))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(popup_area);
+
+    let sections: &[(&str, &[keys::Hint])] = &[
+        ("Navigation", keys::TREE),
+        ("Actions", keys::TREE),
+        ("General", keys::GLOBAL),
+        ("Detail pane", keys::DETAIL),
+    ];
+
+    fn is_navigation(cmd: &keys::Command) -> bool {
+        matches!(
+            cmd,
+            keys::Command::NavigateDown
+                | keys::Command::NavigateUp
+                | keys::Command::Collapse
+                | keys::Command::Expand
+                | keys::Command::Toggle
+                | keys::Command::First
+                | keys::Command::Last
+        )
+    }
+
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    let mut lines: Vec<Line> = Vec::new();
+
+    for (i, &(header, table)) in sections.iter().enumerate() {
+        if i > 0 {
+            lines.push(Line::default());
+        }
+        lines.push(Line::from(Span::styled(header, bold)));
+
+        for hint in table.iter().filter(|h| !h.label.is_empty()) {
+            let dominated_cmd = hint.keys.first().map(|(_, c)| c);
+            let dominated_cmd = match dominated_cmd {
+                Some(c) => c,
+                None => continue,
+            };
+            let dominated_is_nav = is_navigation(dominated_cmd);
+
+            let include = match header {
+                "Navigation" => dominated_is_nav,
+                "Actions" => !dominated_is_nav,
+                _ => true,
+            };
+            if !include {
+                continue;
+            }
+
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(format!("{:<8}", hint.label), dim),
+                Span::raw(hint.description),
+            ]));
+        }
+    }
+
+    let content_height = lines.len() as u16;
+    let viewport_height = inner.height;
+    let max_scroll = content_height.saturating_sub(viewport_height);
+    app.help_scroll = app.help_scroll.min(max_scroll);
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(block)
+        .scroll((app.help_scroll, 0));
+    frame.render_widget(paragraph, popup_area);
+
+    if content_height > viewport_height {
+        let scrollbar_area = Rect {
+            x: popup_area.x + popup_area.width - 1,
+            y: popup_area.y + 1,
+            width: 1,
+            height: popup_area.height.saturating_sub(2),
+        };
+        let mut scrollbar_state =
+            ScrollbarState::new(max_scroll as usize).position(app.help_scroll as usize);
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("│")),
+            scrollbar_area,
+            &mut scrollbar_state,
+        );
+    }
 }

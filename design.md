@@ -158,7 +158,7 @@ Built on ratatui with crossterm backend. Scope:
 - Change status (`s`/`d`/`x` for start/done/drop) and priority (`p` → sub-mode)
 
 Declarative keybinding tables in `tui/keys.rs` are the single source of truth
-for key dispatch, footer hints, and (future) help overlay.
+for key dispatch, footer hints, and help overlay (`?`).
 
 Dependencies and other fields are managed through the CLI.
 

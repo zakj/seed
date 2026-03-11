@@ -20,6 +20,7 @@ pub enum Command {
     DropTask,
     CopyId,
     PriorityMode,
+    ShowHelp,
     ScrollDown,
     ScrollUp,
     // Priority sub-mode
@@ -47,6 +48,11 @@ pub const GLOBAL: &[Hint] = &[
         keys: &[(KeyCode::Tab, Command::TogglePanel)],
         label: "Tab",
         description: "switch pane",
+    },
+    Hint {
+        keys: &[(KeyCode::Char('?'), Command::ShowHelp)],
+        label: "?",
+        description: "help",
     },
 ];
 

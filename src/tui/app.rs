@@ -38,6 +38,8 @@ pub struct App {
     pub edit_state: Option<EditState>,
     pub status_message: Option<(String, Instant)>,
     pub priority_selection: Option<usize>,
+    pub show_help: bool,
+    pub help_scroll: u16,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
 }
@@ -67,6 +69,8 @@ impl App {
             edit_state: None,
             status_message: None,
             priority_selection: None,
+            show_help: false,
+            help_scroll: 0,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
         };

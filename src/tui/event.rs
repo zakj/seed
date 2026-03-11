@@ -47,6 +47,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
     // Clear status on any keypress.
     app.status_message = None;
 
+    if app.show_help {
+        return handle_help_key(app, code);
+    }
+
     if app.priority_selection.is_some() {
         return handle_priority_key(app, code);
     }
@@ -159,6 +163,11 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             }
         }
 
+        Command::ShowHelp => {
+            app.show_help = true;
+            app.help_scroll = 0;
+        }
+
         Command::PriorityMode => {
             if let Some(task) = app.selected_task() {
                 let idx = super::ui::PRIORITIES
@@ -200,6 +209,21 @@ fn mutate_task(
         Ok((_, false)) => app.set_status(noop),
         Err(e) => app.set_status(e.to_string()),
     }
+}
+
+fn handle_help_key(app: &mut App, code: KeyCode) -> Action {
+    match code {
+        KeyCode::Char('?') | KeyCode::Esc => app.show_help = false,
+        KeyCode::Char('q') => return Action::Quit,
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.help_scroll = app.help_scroll.saturating_add(1);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.help_scroll = app.help_scroll.saturating_sub(1);
+        }
+        _ => {}
+    }
+    Action::Continue
 }
 
 fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
