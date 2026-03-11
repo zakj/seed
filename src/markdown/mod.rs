@@ -7,7 +7,7 @@ use pulldown_cmark::Alignment;
 
 use crate::term::{visible_width, wrap_words};
 
-use ir::{Block, Inline, ListKind};
+use ir::{Block, Inline};
 
 const MAX_WIDTH: usize = 80;
 const BOLD: Style = Style::new().bold();
@@ -88,17 +88,7 @@ fn render_blocks(
             }
             Block::List(kind, items) => {
                 for (item_idx, item_blocks) in items.iter().enumerate() {
-                    let prefix = match kind {
-                        ListKind::Unordered => {
-                            let indent = depth * 4;
-                            format!("{}- ", " ".repeat(indent))
-                        }
-                        ListKind::Ordered(start) => {
-                            let num = start.saturating_add(item_idx as u64);
-                            let indent = depth * 4;
-                            format!("{}{}. ", " ".repeat(indent), num)
-                        }
-                    };
+                    let prefix = kind.item_prefix(item_idx, depth);
                     let subsequent = " ".repeat(visible_width(&prefix));
 
                     for (block_idx, item_block) in item_blocks.iter().enumerate() {

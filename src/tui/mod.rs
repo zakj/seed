@@ -3,9 +3,8 @@ mod event;
 mod markdown;
 mod ui;
 
-use std::io::{self, Write};
+use std::io;
 use std::panic;
-use std::{env, fs};
 
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
@@ -62,39 +61,22 @@ fn edit_description(
     app: &mut app::App,
     id: TaskId,
 ) -> Result<(), Error> {
-    let editor = env::var("VISUAL")
-        .or_else(|_| env::var("EDITOR"))
-        .map_err(|_| Error::NoEditor)?;
-
     let original = app
         .selected_task()
         .and_then(|t| t.description.as_deref())
-        .unwrap_or("");
-
-    let mut tmpfile = tempfile::Builder::new().suffix(".md").tempfile()?;
-    tmpfile.write_all(original.as_bytes())?;
+        .unwrap_or("")
+        .to_string();
 
     // Leave TUI, run editor, re-enter TUI.
     restore_terminal()?;
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("{} \"$1\"", &editor))
-        .arg("--")
-        .arg(tmpfile.path())
-        .status();
+    let result = ops::edit_in_editor(&original);
     enable_raw_mode()?;
     execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;
 
-    let status = status?;
-    if !status.success() {
-        return Err(Error::EditorFailed(status));
-    }
-
-    let edited = fs::read_to_string(tmpfile.path())?;
-    if edited.trim() == original.trim() {
+    let Some(edited) = result? else {
         return Ok(());
-    }
+    };
 
     let edits = Edits {
         description: Some(edited),

@@ -3,7 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use unicode_width::UnicodeWidthStr;
 
-use crate::markdown::ir::{Block, Inline, ListKind};
+use crate::markdown::ir::{Block, Inline};
 use crate::markdown::{compute_col_widths, parse};
 
 const CODE_BG: Color = Color::Rgb(48, 48, 48);
@@ -72,17 +72,7 @@ fn render_blocks(blocks: &[Block], lines: &mut Vec<Line<'static>>, width: usize,
             }
             Block::List(kind, items) => {
                 for (item_idx, item_blocks) in items.iter().enumerate() {
-                    let prefix = match kind {
-                        ListKind::Unordered => {
-                            let indent = depth * 4;
-                            format!("{}- ", " ".repeat(indent))
-                        }
-                        ListKind::Ordered(start) => {
-                            let num = start.saturating_add(item_idx as u64);
-                            let indent = depth * 4;
-                            format!("{}{}. ", " ".repeat(indent), num)
-                        }
-                    };
+                    let prefix = kind.item_prefix(item_idx, depth);
                     let indent_str = " ".repeat(prefix.width());
 
                     for (block_idx, item_block) in item_blocks.iter().enumerate() {

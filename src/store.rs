@@ -47,8 +47,22 @@ impl Store {
         &self.root
     }
 
-    pub fn tasks_dir(&self) -> PathBuf {
+    fn tasks_dir(&self) -> PathBuf {
         self.root.join("tasks")
+    }
+
+    /// Latest mtime across tasks dir and config file.
+    pub fn mtime(&self) -> Option<SystemTime> {
+        let tasks_mtime = fs::metadata(self.tasks_dir())
+            .and_then(|m| m.modified())
+            .ok();
+        let config_mtime = fs::metadata(self.config_path())
+            .and_then(|m| m.modified())
+            .ok();
+        match (tasks_mtime, config_mtime) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn task_path(&self, id: TaskId) -> PathBuf {

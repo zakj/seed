@@ -11,7 +11,6 @@ mod tui;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::io::Write;
 
 use chrono::Utc;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -429,35 +428,15 @@ fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
 }
 
 fn cmd_edit_interactive(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
-    let editor = env::var("VISUAL")
-        .or_else(|_| env::var("EDITOR"))
-        .map_err(|_| Error::NoEditor)?;
-
     let store = find_store()?;
     let (mut task, mtime) = store.read_task_with_mtime(args.id)?;
 
     let original = task.description.as_deref().unwrap_or("");
-    let mut tmpfile = tempfile::Builder::new().suffix(".md").tempfile()?;
-    tmpfile.write_all(original.as_bytes())?;
-
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("{} \"$1\"", &editor))
-        .arg("--")
-        .arg(tmpfile.path())
-        .status()?;
-    if !status.success() {
-        return Err(Error::EditorFailed(status));
-    }
-
-    let edited = fs::read_to_string(tmpfile.path())?;
-    let trimmed = edited.trim();
-
-    if trimmed == original.trim() {
+    let Some(edited) = ops::edit_in_editor(original)? else {
         return Ok(());
-    }
+    };
 
-    task.description = ops::normalize_description(trimmed);
+    task.description = ops::normalize_description(&edited);
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
     print_task(cli, &task, format_args!("Updated task {}", args.id))?;

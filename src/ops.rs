@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 
 use chrono::Utc;
 
@@ -281,6 +282,33 @@ pub fn children_map(all_tasks: &[Task]) -> HashMap<TaskId, Vec<TaskId>> {
         }
     }
     map
+}
+
+/// Launch `$VISUAL` or `$EDITOR` on the given text, returning the edited result.
+/// Returns `Ok(None)` if the user made no changes.
+pub fn edit_in_editor(original: &str) -> Result<Option<String>, Error> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .map_err(|_| Error::NoEditor)?;
+
+    let mut tmpfile = tempfile::Builder::new().suffix(".md").tempfile()?;
+    tmpfile.write_all(original.as_bytes())?;
+
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{} \"$1\"", &editor))
+        .arg("--")
+        .arg(tmpfile.path())
+        .status()?;
+    if !status.success() {
+        return Err(Error::EditorFailed(status));
+    }
+
+    let edited = std::fs::read_to_string(tmpfile.path())?;
+    if edited.trim() == original.trim() {
+        return Ok(None);
+    }
+    Ok(Some(edited))
 }
 
 pub fn normalize_description(s: &str) -> Option<String> {

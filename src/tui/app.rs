@@ -49,8 +49,9 @@ impl App {
     pub fn new(store: Store) -> Result<Self, Error> {
         let tasks = store.load_all_tasks()?;
         let done_ids = ops::resolved_ids(&store, &tasks)?;
-        let children_map = build_children_map(&tasks, &done_ids);
-        let parent_map = build_parent_map(&tasks);
+        let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
+        let children_map = build_children_map(&tasks, &done_ids, &task_ids);
+        let parent_map = build_parent_map(&tasks, &task_ids);
         let mut app = Self {
             store,
             tasks,
@@ -69,13 +70,7 @@ impl App {
             last_refresh_check: Instant::now(),
         };
         app.dir_mtime = app.current_mtime();
-        // Start with all non-leaf nodes open.
-        for &parent_id in app.children_map.keys().collect::<Vec<_>>() {
-            if let Some(parent_id) = parent_id {
-                let path = identifier_path(parent_id, &app.parent_map);
-                app.tree_state.open(path);
-            }
-        }
+        app.open_all_parents();
         app.tree_state.select_first();
         Ok(app)
     }
@@ -83,8 +78,9 @@ impl App {
     pub fn reload(&mut self) -> Result<(), Error> {
         self.tasks = self.store.load_all_tasks()?;
         self.done_ids = ops::resolved_ids(&self.store, &self.tasks)?;
-        self.children_map = build_children_map(&self.tasks, &self.done_ids);
-        self.parent_map = build_parent_map(&self.tasks);
+        let task_ids: HashSet<TaskId> = self.tasks.iter().map(|t| t.id).collect();
+        self.children_map = build_children_map(&self.tasks, &self.done_ids, &task_ids);
+        self.parent_map = build_parent_map(&self.tasks, &task_ids);
         self.dir_mtime = self.current_mtime();
         Ok(())
     }
@@ -100,27 +96,20 @@ impl App {
             return;
         }
         if self.reload().is_ok() {
-            // Open any new parent nodes that appeared.
-            for &parent_id in self.children_map.keys().collect::<Vec<_>>() {
-                if let Some(parent_id) = parent_id {
-                    let path = identifier_path(parent_id, &self.parent_map);
-                    self.tree_state.open(path);
-                }
-            }
+            self.open_all_parents();
         }
     }
 
     fn current_mtime(&self) -> Option<SystemTime> {
-        let tasks_mtime = std::fs::metadata(self.store.tasks_dir())
-            .and_then(|m| m.modified())
-            .ok();
-        let config_mtime = std::fs::metadata(self.store.root().join("config.kdl"))
-            .and_then(|m| m.modified())
-            .ok();
-        // Use the latest of the two.
-        match (tasks_mtime, config_mtime) {
-            (Some(a), Some(b)) => Some(a.max(b)),
-            (a, b) => a.or(b),
+        self.store.mtime()
+    }
+
+    fn open_all_parents(&mut self) {
+        for &parent_id in self.children_map.keys().collect::<Vec<_>>() {
+            if let Some(parent_id) = parent_id {
+                let path = identifier_path(parent_id, &self.parent_map);
+                self.tree_state.open(path);
+            }
         }
     }
 
@@ -209,8 +198,11 @@ fn build_tree_children<'a>(
 }
 
 /// Build sorted children map using indices into the task slice.
-fn build_children_map(tasks: &[Task], done_ids: &HashSet<TaskId>) -> ChildrenMap {
-    let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
+fn build_children_map(
+    tasks: &[Task],
+    done_ids: &HashSet<TaskId>,
+    task_ids: &HashSet<TaskId>,
+) -> ChildrenMap {
     let mut children_map: ChildrenMap = HashMap::new();
     for (i, task) in tasks.iter().enumerate() {
         let parent = task.parent.filter(|p| task_ids.contains(p));
@@ -226,8 +218,7 @@ fn build_children_map(tasks: &[Task], done_ids: &HashSet<TaskId>) -> ChildrenMap
     children_map
 }
 
-fn build_parent_map(tasks: &[Task]) -> HashMap<TaskId, TaskId> {
-    let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
+fn build_parent_map(tasks: &[Task], task_ids: &HashSet<TaskId>) -> HashMap<TaskId, TaskId> {
     tasks
         .iter()
         .filter_map(|t| t.parent.filter(|p| task_ids.contains(p)).map(|p| (t.id, p)))

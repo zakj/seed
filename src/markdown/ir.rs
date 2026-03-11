@@ -24,6 +24,19 @@ pub enum ListKind {
     Ordered(u64),
 }
 
+impl ListKind {
+    pub fn item_prefix(&self, item_idx: usize, depth: usize) -> String {
+        let indent = depth * 4;
+        match self {
+            ListKind::Unordered => format!("{}- ", " ".repeat(indent)),
+            ListKind::Ordered(start) => {
+                let num = start.saturating_add(item_idx as u64);
+                format!("{}{}. ", " ".repeat(indent), num)
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Inline {
     Text(String),
