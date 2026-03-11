@@ -22,6 +22,7 @@ pub const PRIORITIES: [Priority; 4] = [
     Priority::Normal,
     Priority::Low,
 ];
+pub const DEFAULT_PRIORITY_INDEX: usize = 2; // Normal
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [left, right] =
@@ -313,8 +314,7 @@ fn draw_priority_popup(frame: &mut Frame, app: &App) {
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
-    let shortcut_keys = ['c', 'h', 'n', 'l'];
-    for (i, &priority) in PRIORITIES.iter().enumerate() {
+    for (i, (&priority, hint)) in PRIORITIES.iter().zip(keys::PRIORITY.iter()).enumerate() {
         let style = priority.style();
         let color_style = app::anstyle_to_ratatui(style.color);
         let mut row_style = color_style;
@@ -323,7 +323,7 @@ fn draw_priority_popup(frame: &mut Frame, app: &App) {
         }
 
         let line = Line::from(vec![
-            Span::styled(format!("  {}  ", shortcut_keys[i]), row_style),
+            Span::styled(format!("  {}  ", hint.label), row_style),
             Span::styled(format!("{} ", style.symbol), row_style),
             Span::styled(format!("{:<10}", style.label), row_style),
         ]);

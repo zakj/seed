@@ -150,16 +150,13 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         }
 
         Command::PriorityMode => {
-            let idx = app
-                .selected_task()
-                .map(|t| {
-                    super::ui::PRIORITIES
-                        .iter()
-                        .position(|&p| p == t.priority)
-                        .unwrap_or(2)
-                })
-                .unwrap_or(2);
-            app.priority_selection = Some(idx);
+            if let Some(task) = app.selected_task() {
+                let idx = super::ui::PRIORITIES
+                    .iter()
+                    .position(|&p| p == task.priority)
+                    .unwrap_or(super::ui::DEFAULT_PRIORITY_INDEX);
+                app.priority_selection = Some(idx);
+            }
         }
 
         _ => {}
@@ -197,7 +194,6 @@ fn mutate_task(
 
 fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
     let Some(cmd) = keys::resolve(&[keys::PRIORITY], code) else {
-        app.priority_selection = None;
         return Action::Continue;
     };
 
@@ -223,10 +219,7 @@ fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
             app.priority_selection = None;
             return Action::Continue;
         }
-        _ => {
-            app.priority_selection = None;
-            return Action::Continue;
-        }
+        _ => return Action::Continue,
     };
 
     app.priority_selection = None;
