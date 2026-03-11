@@ -66,19 +66,20 @@ pub fn create_task(store: &Store, new: NewTask) -> Result<Task, Error> {
     task.priority = new.priority.unwrap_or_default();
     task.labels = new.labels.into_iter().collect();
     task.parent = new.parent;
-    task.depends = new.deps.iter().copied().collect();
+    task.depends = new.deps.into_iter().collect();
     task.description = new.description.as_deref().and_then(normalize_description);
 
-    if new.parent.is_some() || !new.deps.is_empty() {
+    if task.parent.is_some() || !task.depends.is_empty() {
         let all_tasks = store.load_all_tasks()?;
         let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
         known_ids.extend(store.load_archived_ids()?);
 
-        if let Some(parent_id) = new.parent {
+        if let Some(parent_id) = task.parent {
             validate_parent(&all_tasks, &known_ids, id, parent_id)?;
         }
-        if !new.deps.is_empty() {
-            validate_deps_exist(&known_ids, &new.deps)?;
+        if !task.depends.is_empty() {
+            let deps: Vec<TaskId> = task.depends.iter().copied().collect();
+            validate_deps_exist(&known_ids, &deps)?;
             validate_dag(&all_tasks, Some(&task))?;
         }
     }
