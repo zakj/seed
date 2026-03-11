@@ -93,7 +93,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "h/l",
         description: "collapse/expand",
-        footer: Footer::Left,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -112,14 +112,14 @@ pub const TREE: &[Hint] = &[
     },
     Hint {
         keys: &[(KeyCode::Char('e'), Command::EditTitle)],
-        label: "e",
-        description: "edit",
+        label: "e/E",
+        description: "title/desc",
         footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('E'), Command::EditDescription)],
-        label: "E",
-        description: "describe",
+        label: "",
+        description: "",
         footer: Footer::Hidden,
     },
     Hint {
@@ -138,7 +138,7 @@ pub const TREE: &[Hint] = &[
         keys: &[(KeyCode::Char('s'), Command::StartTask)],
         label: "s/d/x",
         description: "start/done/drop",
-        footer: Footer::Left,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('d'), Command::CompleteTask)],
