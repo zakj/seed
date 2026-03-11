@@ -47,7 +47,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
     // Clear status on any keypress.
     app.status_message = None;
 
-    if app.show_help {
+    if app.help_scroll.is_some() {
         return handle_help_key(app, code);
     }
 
@@ -164,8 +164,7 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         }
 
         Command::ShowHelp => {
-            app.show_help = true;
-            app.help_scroll = 0;
+            app.help_scroll = Some(0);
         }
 
         Command::PriorityMode => {
@@ -212,15 +211,12 @@ fn mutate_task(
 }
 
 fn handle_help_key(app: &mut App, code: KeyCode) -> Action {
+    let scroll = app.help_scroll.as_mut().unwrap();
     match code {
-        KeyCode::Char('?') | KeyCode::Esc => app.show_help = false,
+        KeyCode::Char('?') | KeyCode::Esc => app.help_scroll = None,
         KeyCode::Char('q') => return Action::Quit,
-        KeyCode::Char('j') | KeyCode::Down => {
-            app.help_scroll = app.help_scroll.saturating_add(1);
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            app.help_scroll = app.help_scroll.saturating_sub(1);
-        }
+        KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
+        KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
         _ => {}
     }
     Action::Continue
