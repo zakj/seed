@@ -82,6 +82,8 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         Command::NavigateUp => navigate(app, |ts| {
             ts.key_up();
         }),
+        Command::SiblingDown => sibling_navigate(app, 1),
+        Command::SiblingUp => sibling_navigate(app, -1),
         Command::Collapse => {
             app.tree_state.key_left();
         }
@@ -188,6 +190,28 @@ fn navigate(app: &mut App, f: impl FnOnce(&mut tui_tree_widget::TreeState<TaskId
     if app.tree_state.selected() != prev {
         app.detail_scroll = 0;
     }
+}
+
+fn sibling_navigate(app: &mut App, direction: isize) {
+    let Some(&current_id) = app.tree_state.selected().last() else {
+        return;
+    };
+    let parent = app.parent_map.get(&current_id).copied();
+    let Some(siblings) = app.children_map.get(&parent) else {
+        return;
+    };
+    let Some(pos) = siblings
+        .iter()
+        .position(|&idx| app.tasks[idx].id == current_id)
+    else {
+        return;
+    };
+    let new_pos = pos as isize + direction;
+    if new_pos < 0 || new_pos >= siblings.len() as isize {
+        return;
+    }
+    let target_id = app.tasks[siblings[new_pos as usize]].id;
+    select_task(app, target_id);
 }
 
 fn mutate_task(

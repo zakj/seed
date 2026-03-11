@@ -414,6 +414,8 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
                 | keys::Command::Collapse
                 | keys::Command::Expand
                 | keys::Command::Toggle
+                | keys::Command::SiblingDown
+                | keys::Command::SiblingUp
                 | keys::Command::First
                 | keys::Command::Last
         )
