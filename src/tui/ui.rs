@@ -224,14 +224,10 @@ fn format_related_spans(
     let blocked = task.is_blocked(done_ids);
     let indicator = task.indicator(blocked);
     let style = app::anstyle_to_ratatui(indicator.color);
-    if indicator.symbol.trim().is_empty() {
-        vec![Span::raw(format!("#{} {}", task.id, task.title))]
-    } else {
-        vec![
-            Span::styled(format!("{} ", indicator.symbol), style),
-            Span::raw(format!("#{} {}", task.id, task.title)),
-        ]
-    }
+    vec![
+        Span::styled(format!("{} ", indicator.symbol), style),
+        Span::raw(format!("#{} {}", task.id, task.title)),
+    ]
 }
 
 /// Approximate visual line count after wrapping. Uses character-width ceiling

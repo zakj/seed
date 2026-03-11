@@ -150,14 +150,10 @@ pub fn format_task_detail(
 
 fn format_related(task: &Task, blocked: bool) -> String {
     let style = task.indicator(blocked);
-    if style.symbol.trim().is_empty() {
-        format!("#{} {}", task.id, task.title)
-    } else {
-        format!(
-            "{}{}{RESET} #{} {}",
-            style.color, style.symbol, task.id, task.title
-        )
-    }
+    format!(
+        "{}{}{RESET} #{} {}",
+        style.color, style.symbol, task.id, task.title
+    )
 }
 
 struct ListRow<'a> {

@@ -153,7 +153,7 @@ impl Priority {
                 color: AnsiColor::Yellow.on_default(),
             },
             Self::Normal => Style {
-                symbol: " ",
+                symbol: "○",
                 label: "normal",
                 color: anstyle::Style::new(),
             },
@@ -243,7 +243,7 @@ impl Task {
             return Self::BLOCKED;
         }
         match self.status {
-            Status::Todo if !self.priority.is_default() => self.priority.style(),
+            Status::Todo => self.priority.style(),
             _ => self.status.style(),
         }
     }
