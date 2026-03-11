@@ -149,6 +149,16 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             mutate_task(app, ops::drop_task, "Task dropped", "Already dropped");
         }
 
+        Command::CopyId => {
+            if let Some(task) = app.selected_task() {
+                let text = task.id.to_string();
+                match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&text)) {
+                    Ok(()) => app.set_status(format!("Copied #{text}")),
+                    Err(e) => app.set_status(format!("Copy failed: {e}")),
+                }
+            }
+        }
+
         Command::PriorityMode => {
             if let Some(task) = app.selected_task() {
                 let idx = super::ui::PRIORITIES

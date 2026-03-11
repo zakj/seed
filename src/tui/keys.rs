@@ -26,6 +26,7 @@ pub enum Command {
     SetHigh,
     SetNormal,
     SetLow,
+    CopyId,
     Cancel,
     Confirm,
 }
@@ -126,6 +127,11 @@ pub const TREE: &[Hint] = &[
         keys: &[(KeyCode::Char('p'), Command::PriorityMode)],
         label: "p",
         description: "priority",
+    },
+    Hint {
+        keys: &[(KeyCode::Char('y'), Command::CopyId)],
+        label: "y",
+        description: "copy id",
     },
     Hint {
         keys: &[

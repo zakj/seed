@@ -26,6 +26,7 @@ terminal_size = "0.4.3"
 anstyle = "1"
 anstream = "0.6"
 unicode-width = "0.2"
+arboard = "3"
 tempfile = "3"
 ratatui = { version = "0.30", optional = true, features = ["crossterm"] }
 tui-tree-widget = { version = "0.24", optional = true }
