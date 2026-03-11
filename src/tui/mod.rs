@@ -1,5 +1,6 @@
 mod app;
 mod event;
+mod keys;
 mod markdown;
 mod ui;
 
@@ -47,7 +48,7 @@ fn run_loop(
             event::Action::Quit => return Ok(()),
             event::Action::EditDescription(id) => {
                 if let Err(e) = edit_description(terminal, &mut app, id) {
-                    app.error = Some(e.to_string());
+                    app.set_status(e.to_string());
                 }
             }
             event::Action::Continue => {}

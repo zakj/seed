@@ -36,8 +36,8 @@ pub struct App {
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
     pub edit_state: Option<EditState>,
-    /// Transient error message, cleared on next keypress.
-    pub error: Option<String>,
+    pub status_message: Option<(String, Instant)>,
+    pub priority_mode: bool,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
 }
@@ -65,7 +65,8 @@ impl App {
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
             edit_state: None,
-            error: None,
+            status_message: None,
+            priority_mode: false,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
         };
@@ -111,6 +112,10 @@ impl App {
                 self.tree_state.open(path);
             }
         }
+    }
+
+    pub fn set_status(&mut self, msg: impl Into<String>) {
+        self.status_message = Some((msg.into(), Instant::now()));
     }
 
     pub fn selected_task(&self) -> Option<&Task> {

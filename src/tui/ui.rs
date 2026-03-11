@@ -11,6 +11,7 @@ use tui_tree_widget::Tree;
 use unicode_width::UnicodeWidthStr;
 
 use super::app::{self, App, Panel};
+use super::keys;
 use super::markdown;
 use crate::format::{format_date, format_datetime};
 use crate::task::{Task, TaskId};
@@ -280,45 +281,48 @@ fn draw_edit_popup(frame: &mut Frame, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    if let Some(error) = &app.error {
+    if app.priority_mode {
+        render_hints(frame, area, &[keys::PRIORITY]);
+        return;
+    }
+
+    if let Some((msg, _)) = &app.status_message {
         let line = Line::from(vec![
             Span::raw(" "),
-            Span::styled(error.as_str(), Style::new().fg(Color::Red)),
+            Span::styled(msg.as_str(), Style::new().fg(Color::Yellow)),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }
-    let keys: &[(&str, &str)] = match app.focused_panel {
-        Panel::Tree => &[
-            ("j/k", "navigate"),
-            ("h/l", "collapse/expand"),
-            ("Space", "toggle"),
-            ("e", "edit"),
-            ("E", "describe"),
-            ("a/A", "add/add child"),
-            ("g/G", "top/bottom"),
-            ("Tab", "detail"),
-            ("q", "quit"),
-        ],
-        Panel::Detail => &[
-            ("j/k", "scroll"),
-            ("g/G", "top/bottom"),
-            ("Tab", "tasks"),
-            ("q", "quit"),
-        ],
+
+    let hints: &[&[keys::Hint]] = match app.focused_panel {
+        Panel::Tree => &[keys::TREE, keys::GLOBAL],
+        Panel::Detail => &[keys::DETAIL, keys::GLOBAL],
     };
-    let spans: Vec<Span> = keys
+    render_hints(frame, area, hints);
+}
+
+fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
+    let visible: Vec<&keys::Hint> = tables
+        .iter()
+        .flat_map(|t| t.iter())
+        .filter(|h| !h.label.is_empty())
+        .collect();
+    let spans: Vec<Span> = visible
         .iter()
         .enumerate()
-        .flat_map(|(i, (key, desc))| {
+        .flat_map(|(i, hint)| {
             let mut s = vec![
                 Span::styled(
-                    format!(" {key} "),
+                    format!(" {} ", hint.label),
                     Style::new().fg(Color::Black).bg(Color::DarkGray),
                 ),
-                Span::styled(format!(" {desc} "), Style::new().fg(Color::DarkGray)),
+                Span::styled(
+                    format!(" {} ", hint.description),
+                    Style::new().fg(Color::DarkGray),
+                ),
             ];
-            if i < keys.len() - 1 {
+            if i < visible.len() - 1 {
                 s.push(Span::raw(" "));
             }
             s

@@ -154,9 +154,13 @@ Built on ratatui with crossterm backend. Scope:
 - Change status and priority inline
 - View full task detail in a pane
 - Create tasks (`a` for root, `A` for child of selected)
-- Edit task titles inline (`e`)
+- Edit task titles inline (`e`), descriptions via `$EDITOR` (`E`)
+- Change status (`s`/`d`/`x` for start/done/drop) and priority (`p` → sub-mode)
 
-Descriptions, dependencies, and other fields are managed through the CLI.
+Declarative keybinding tables in `tui/keys.rs` are the single source of truth
+for key dispatch, footer hints, and (future) help overlay.
+
+Dependencies and other fields are managed through the CLI.
 
 ## Agent Priming
 
