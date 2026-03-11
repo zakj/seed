@@ -347,12 +347,11 @@ fn create_and_edit_task(app: &mut App, parent: Option<TaskId>) {
     let placeholder = "New task".to_string();
     if let Ok(task) = ops::create_task(
         &app.store,
-        placeholder,
-        None,
-        std::iter::empty(),
-        parent,
-        &[],
-        None,
+        ops::NewTask {
+            title: placeholder,
+            parent,
+            ..Default::default()
+        },
     ) {
         let new_id = task.id;
         if app.reload().is_ok() {

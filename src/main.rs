@@ -334,12 +334,14 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
     let store = find_store()?;
     let task = ops::create_task(
         &store,
-        args.title.clone(),
-        args.priority,
-        args.label.iter().cloned(),
-        args.parent,
-        &args.dep,
-        args.description.as_deref(),
+        ops::NewTask {
+            title: args.title.clone(),
+            priority: args.priority,
+            labels: args.label.clone(),
+            parent: args.parent,
+            deps: args.dep.clone(),
+            description: args.description.clone(),
+        },
     )?;
 
     if cli.json {

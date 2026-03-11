@@ -50,33 +50,35 @@ pub fn resolved_ids(store: &Store, tasks: &[Task]) -> Result<HashSet<TaskId>, Er
     Ok(ids)
 }
 
-pub fn create_task(
-    store: &Store,
-    title: String,
-    priority: Option<Priority>,
-    labels: impl IntoIterator<Item = String>,
-    parent: Option<TaskId>,
-    deps: &[TaskId],
-    description: Option<&str>,
-) -> Result<Task, Error> {
-    let id = store.allocate_id()?;
-    let mut task = Task::new(id, title);
-    task.priority = priority.unwrap_or_default();
-    task.labels = labels.into_iter().collect();
-    task.parent = parent;
-    task.depends = deps.iter().copied().collect();
-    task.description = description.and_then(normalize_description);
+#[derive(Default)]
+pub struct NewTask {
+    pub title: String,
+    pub priority: Option<Priority>,
+    pub labels: Vec<String>,
+    pub parent: Option<TaskId>,
+    pub deps: Vec<TaskId>,
+    pub description: Option<String>,
+}
 
-    if parent.is_some() || !deps.is_empty() {
+pub fn create_task(store: &Store, new: NewTask) -> Result<Task, Error> {
+    let id = store.allocate_id()?;
+    let mut task = Task::new(id, new.title);
+    task.priority = new.priority.unwrap_or_default();
+    task.labels = new.labels.into_iter().collect();
+    task.parent = new.parent;
+    task.depends = new.deps.iter().copied().collect();
+    task.description = new.description.as_deref().and_then(normalize_description);
+
+    if new.parent.is_some() || !new.deps.is_empty() {
         let all_tasks = store.load_all_tasks()?;
         let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
         known_ids.extend(store.load_archived_ids()?);
 
-        if let Some(parent_id) = parent {
+        if let Some(parent_id) = new.parent {
             validate_parent(&all_tasks, &known_ids, id, parent_id)?;
         }
-        if !deps.is_empty() {
-            validate_deps_exist(&known_ids, deps)?;
+        if !new.deps.is_empty() {
+            validate_deps_exist(&known_ids, &new.deps)?;
             validate_dag(&all_tasks, Some(&task))?;
         }
     }
