@@ -32,11 +32,18 @@ pub enum Command {
     Confirm,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Footer {
+    Hidden,
+    Left,
+    Right,
+}
+
 pub struct Hint {
     pub keys: &'static [(KeyCode, Command)],
     pub label: &'static str,
     pub description: &'static str,
-    pub footer: bool,
+    pub footer: Footer,
 }
 
 pub const GLOBAL: &[Hint] = &[
@@ -44,19 +51,19 @@ pub const GLOBAL: &[Hint] = &[
         keys: &[(KeyCode::Char('q'), Command::Quit)],
         label: "q",
         description: "quit",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Tab, Command::TogglePanel)],
         label: "Tab",
         description: "switch pane",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('?'), Command::ShowHelp)],
         label: "?",
         description: "help",
-        footer: true,
+        footer: Footer::Right,
     },
 ];
 
@@ -68,7 +75,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "j/k",
         description: "navigate",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[
@@ -77,7 +84,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -86,7 +93,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "h/l",
         description: "collapse/expand",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[
@@ -95,67 +102,67 @@ pub const TREE: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char(' '), Command::Toggle)],
         label: "Space",
         description: "toggle",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('e'), Command::EditTitle)],
         label: "e",
         description: "edit",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('E'), Command::EditDescription)],
         label: "E",
         description: "describe",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('a'), Command::AddTask)],
         label: "a/A",
         description: "add/add child",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('A'), Command::AddChildTask)],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('s'), Command::StartTask)],
         label: "s/d/x",
         description: "start/done/drop",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('d'), Command::CompleteTask)],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('x'), Command::DropTask)],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('p'), Command::PriorityMode)],
         label: "p",
         description: "priority",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('y'), Command::CopyId)],
         label: "y",
         description: "copy id",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -164,7 +171,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "g/G",
         description: "top/bottom",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -173,7 +180,7 @@ pub const TREE: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
 ];
 
@@ -185,7 +192,7 @@ pub const DETAIL: &[Hint] = &[
         ],
         label: "j/k",
         description: "scroll",
-        footer: true,
+        footer: Footer::Left,
     },
     Hint {
         keys: &[
@@ -194,7 +201,7 @@ pub const DETAIL: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -203,7 +210,7 @@ pub const DETAIL: &[Hint] = &[
         ],
         label: "g/G",
         description: "top/bottom",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -212,7 +219,7 @@ pub const DETAIL: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
 ];
 
@@ -221,25 +228,25 @@ pub const PRIORITY: &[Hint] = &[
         keys: &[(KeyCode::Char('c'), Command::SetCritical)],
         label: "c",
         description: "critical",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('h'), Command::SetHigh)],
         label: "h",
         description: "high",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('n'), Command::SetNormal)],
         label: "n",
         description: "normal",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Char('l'), Command::SetLow)],
         label: "l",
         description: "low",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -248,7 +255,7 @@ pub const PRIORITY: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[
@@ -257,19 +264,19 @@ pub const PRIORITY: &[Hint] = &[
         ],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Enter, Command::Confirm)],
         label: "",
         description: "",
-        footer: false,
+        footer: Footer::Hidden,
     },
     Hint {
         keys: &[(KeyCode::Esc, Command::Cancel)],
         label: "Esc",
         description: "cancel",
-        footer: false,
+        footer: Footer::Hidden,
     },
 ];
 

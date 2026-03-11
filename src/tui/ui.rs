@@ -371,15 +371,12 @@ fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
     let visible: Vec<&keys::Hint> = tables
         .iter()
         .flat_map(|t| t.iter())
-        .filter(|h| h.footer)
+        .filter(|h| h.footer != keys::Footer::Hidden)
         .collect();
 
-    // Separate right-aligned hints (GLOBAL footer hints like "? help").
-    let (right, left): (Vec<_>, Vec<_>) = visible.into_iter().partition(|h| {
-        h.keys
-            .first()
-            .is_some_and(|(_, c)| *c == keys::Command::ShowHelp)
-    });
+    let (right, left): (Vec<_>, Vec<_>) = visible
+        .into_iter()
+        .partition(|h| h.footer == keys::Footer::Right);
 
     let mut left_spans: Vec<Span> = left
         .iter()
