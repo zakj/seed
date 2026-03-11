@@ -27,6 +27,7 @@ pub enum Command {
     SetNormal,
     SetLow,
     Cancel,
+    Confirm,
 }
 
 pub struct Hint {
@@ -199,6 +200,27 @@ pub const PRIORITY: &[Hint] = &[
         keys: &[(KeyCode::Char('l'), Command::SetLow)],
         label: "l",
         description: "low",
+    },
+    Hint {
+        keys: &[
+            (KeyCode::Char('j'), Command::NavigateDown),
+            (KeyCode::Down, Command::NavigateDown),
+        ],
+        label: "",
+        description: "",
+    },
+    Hint {
+        keys: &[
+            (KeyCode::Char('k'), Command::NavigateUp),
+            (KeyCode::Up, Command::NavigateUp),
+        ],
+        label: "",
+        description: "",
+    },
+    Hint {
+        keys: &[(KeyCode::Enter, Command::Confirm)],
+        label: "",
+        description: "",
     },
     Hint {
         keys: &[(KeyCode::Esc, Command::Cancel)],

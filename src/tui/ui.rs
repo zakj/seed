@@ -14,7 +14,14 @@ use super::app::{self, App, Panel};
 use super::keys;
 use super::markdown;
 use crate::format::{format_date, format_datetime};
-use crate::task::{Task, TaskId};
+use crate::task::{Priority, Task, TaskId};
+
+pub const PRIORITIES: [Priority; 4] = [
+    Priority::Critical,
+    Priority::High,
+    Priority::Normal,
+    Priority::Low,
+];
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [left, right] =
@@ -37,6 +44,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     if app.edit_state.is_some() {
         draw_edit_popup(frame, app);
+    }
+    if app.priority_selection.is_some() {
+        draw_priority_popup(frame, app);
     }
 }
 
@@ -280,12 +290,51 @@ fn draw_edit_popup(frame: &mut Frame, app: &App) {
     frame.set_cursor_position(ratatui::layout::Position::new(cursor_x, inner.y));
 }
 
-fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    if app.priority_mode {
-        render_hints(frame, area, &[keys::PRIORITY]);
+fn draw_priority_popup(frame: &mut Frame, app: &App) {
+    let selected = app.priority_selection.unwrap();
+    let area = frame.area();
+    if area.height < 8 || area.width < 22 {
         return;
     }
 
+    let width = 22u16;
+    let height = (PRIORITIES.len() as u16) + 2; // border top + rows + border bottom
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = area.height / 3;
+
+    let popup_area = Rect::new(x, y, width, height.min(area.height.saturating_sub(y)));
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Priority ")
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::new().fg(Color::White));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let shortcut_keys = ['c', 'h', 'n', 'l'];
+    for (i, &priority) in PRIORITIES.iter().enumerate() {
+        let style = priority.style();
+        let color_style = app::anstyle_to_ratatui(style.color);
+        let mut row_style = color_style;
+        if i == selected {
+            row_style = row_style.bg(Color::Indexed(235));
+        }
+
+        let line = Line::from(vec![
+            Span::styled(format!("  {}  ", shortcut_keys[i]), row_style),
+            Span::styled(format!("{} ", style.symbol), row_style),
+            Span::styled(format!("{:<10}", style.label), row_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(inner.x, inner.y + i as u16, inner.width, 1),
+        );
+    }
+}
+
+fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     if let Some((msg, _)) = &app.status_message {
         let line = Line::from(vec![
             Span::raw(" "),

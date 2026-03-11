@@ -37,7 +37,7 @@ pub struct App {
     pub detail_dep_lines: Vec<(usize, TaskId)>,
     pub edit_state: Option<EditState>,
     pub status_message: Option<(String, Instant)>,
-    pub priority_mode: bool,
+    pub priority_selection: Option<usize>,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
 }
@@ -66,7 +66,7 @@ impl App {
             detail_dep_lines: Vec::new(),
             edit_state: None,
             status_message: None,
-            priority_mode: false,
+            priority_selection: None,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
         };

@@ -47,7 +47,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
     // Clear status on any keypress.
     app.status_message = None;
 
-    if app.priority_mode {
+    if app.priority_selection.is_some() {
         return handle_priority_key(app, code);
     }
 
@@ -150,7 +150,16 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         }
 
         Command::PriorityMode => {
-            app.priority_mode = true;
+            let idx = app
+                .selected_task()
+                .map(|t| {
+                    super::ui::PRIORITIES
+                        .iter()
+                        .position(|&p| p == t.priority)
+                        .unwrap_or(2)
+                })
+                .unwrap_or(2);
+            app.priority_selection = Some(idx);
         }
 
         _ => {}
@@ -188,22 +197,43 @@ fn mutate_task(
 
 fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
     let Some(cmd) = keys::resolve(&[keys::PRIORITY], code) else {
-        app.priority_mode = false;
+        app.priority_selection = None;
         return Action::Continue;
     };
 
-    app.priority_mode = false;
-
     let priority = match cmd {
-        Command::SetCritical => Priority::Critical,
-        Command::SetHigh => Priority::High,
-        Command::SetNormal => Priority::Normal,
-        Command::SetLow => Priority::Low,
-        Command::Cancel => return Action::Continue,
-        _ => return Action::Continue,
+        Command::SetCritical => Some(Priority::Critical),
+        Command::SetHigh => Some(Priority::High),
+        Command::SetNormal => Some(Priority::Normal),
+        Command::SetLow => Some(Priority::Low),
+        Command::NavigateDown => {
+            if let Some(idx) = app.priority_selection.as_mut() {
+                *idx = (*idx + 1) % super::ui::PRIORITIES.len();
+            }
+            return Action::Continue;
+        }
+        Command::NavigateUp => {
+            if let Some(idx) = app.priority_selection.as_mut() {
+                *idx = (*idx + super::ui::PRIORITIES.len() - 1) % super::ui::PRIORITIES.len();
+            }
+            return Action::Continue;
+        }
+        Command::Confirm => app.priority_selection.map(|idx| super::ui::PRIORITIES[idx]),
+        Command::Cancel => {
+            app.priority_selection = None;
+            return Action::Continue;
+        }
+        _ => {
+            app.priority_selection = None;
+            return Action::Continue;
+        }
     };
 
-    if let Some(task) = app.selected_task() {
+    app.priority_selection = None;
+
+    if let Some(priority) = priority
+        && let Some(task) = app.selected_task()
+    {
         let id = task.id;
         let edits = Edits {
             priority: Some(priority),
