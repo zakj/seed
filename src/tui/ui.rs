@@ -384,25 +384,6 @@ fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
 
 fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
-    if area.height < 10 || area.width < 30 {
-        return;
-    }
-
-    let width = (area.width * 3 / 5).max(30).min(area.width);
-    let height = (area.height * 4 / 5).max(10).min(area.height);
-    let x = (area.width.saturating_sub(width)) / 2;
-    let y = (area.height.saturating_sub(height)) / 2;
-
-    let popup_area = Rect::new(x, y, width, height);
-    frame.render_widget(Clear, popup_area);
-
-    let block = Block::default()
-        .title(" Help ")
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::new().fg(Color::White))
-        .padding(Padding::horizontal(1));
-    let inner = block.inner(popup_area);
 
     let sections: &[(&str, &[keys::Hint])] = &[
         ("Navigation", keys::TREE),
@@ -427,30 +408,31 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
     let bold = Style::new().add_modifier(Modifier::BOLD);
     let dim = Style::new().add_modifier(Modifier::DIM);
     let mut lines: Vec<Line> = Vec::new();
+    let mut max_line_width: usize = 0;
 
     for (i, &(header, table)) in sections.iter().enumerate() {
         if i > 0 {
             lines.push(Line::default());
         }
         lines.push(Line::from(Span::styled(header, bold)));
+        max_line_width = max_line_width.max(header.len());
 
         for hint in table.iter().filter(|h| !h.label.is_empty()) {
-            let dominated_cmd = hint.keys.first().map(|(_, c)| c);
-            let dominated_cmd = match dominated_cmd {
-                Some(c) => c,
-                None => continue,
+            let Some((_, cmd)) = hint.keys.first() else {
+                continue;
             };
-            let dominated_is_nav = is_navigation(dominated_cmd);
-
+            let is_nav = is_navigation(cmd);
             let include = match header {
-                "Navigation" => dominated_is_nav,
-                "Actions" => !dominated_is_nav,
+                "Navigation" => is_nav,
+                "Actions" => !is_nav,
                 _ => true,
             };
             if !include {
                 continue;
             }
 
+            let row_width = 2 + 8 + hint.description.len(); // indent + label col + desc
+            max_line_width = max_line_width.max(row_width);
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(format!("{:<8}", hint.label), dim),
@@ -459,8 +441,30 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
         }
     }
 
+    // Fit popup to content: borders (2) + horizontal padding (2) + content width
     let content_height = lines.len() as u16;
-    let viewport_height = inner.height;
+    let width = ((max_line_width as u16) + 4).min(area.width);
+    // borders (2) + content, capped to terminal height
+    let height = (content_height + 2).min(area.height);
+
+    if area.height < 5 || area.width < width {
+        return;
+    }
+
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+
+    let popup_area = Rect::new(x, y, width, height);
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Help ")
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::new().fg(Color::White))
+        .padding(Padding::horizontal(1));
+
+    let viewport_height = height.saturating_sub(2); // borders
     let max_scroll = content_height.saturating_sub(viewport_height);
     app.help_scroll = app.help_scroll.min(max_scroll);
 
