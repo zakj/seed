@@ -61,7 +61,7 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_style(
             Style::new()
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(235))
                 .add_modifier(Modifier::BOLD),
         )
         .node_closed_symbol("▸ ")
