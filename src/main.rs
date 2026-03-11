@@ -1,21 +1,23 @@
 mod error;
 mod format;
 mod markdown;
+mod ops;
 mod store;
 mod task;
 mod term;
+#[cfg(feature = "tui")]
+mod tui;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::io::Write;
 
 use chrono::Utc;
 use clap::{CommandFactory, Parser, Subcommand};
 
 use error::Error;
 use store::Store;
-use task::{Priority, Status, Task, TaskId, validate_dag, validate_deps_exist, validate_parent};
+use task::{Priority, Status, Task, TaskId};
 
 #[derive(Parser)]
 #[command(
@@ -140,6 +142,11 @@ whose children are all complete. Sorted by priority."
     /// Generate shell completions
     #[command(hide = true)]
     Completions { shell: clap_complete::Shell },
+
+    /// Interactive terminal UI
+    #[cfg(feature = "tui")]
+    #[command(alias = "t")]
+    Tui,
 }
 
 #[derive(clap::Args)]
@@ -228,6 +235,28 @@ struct EditModifications {
     force: bool,
 }
 
+impl From<&EditModifications> for ops::Edits {
+    fn from(m: &EditModifications) -> Self {
+        let parent = if m.no_parent {
+            Some(None)
+        } else {
+            m.parent.map(Some)
+        };
+        Self {
+            title: m.title.clone(),
+            status: m.status,
+            priority: m.priority,
+            description: m.description.clone(),
+            parent,
+            add_labels: m.add_label.clone(),
+            rm_labels: m.rm_label.clone(),
+            add_deps: m.add_dep.clone(),
+            rm_deps: m.rm_dep.clone(),
+            force: m.force,
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     if let Err(e) = run(&cli) {
@@ -276,7 +305,17 @@ fn run(cli: &Cli) -> Result<(), Error> {
             clap_complete::generate(*shell, &mut Cli::command(), "sd", &mut std::io::stdout());
             Ok(())
         }
+        #[cfg(feature = "tui")]
+        Command::Tui => {
+            let store = find_store()?;
+            tui::run(store)
+        }
     }
+}
+
+fn find_store() -> Result<Store, Error> {
+    let cwd = env::current_dir()?;
+    Store::find(&cwd)
 }
 
 fn cmd_init(cli: &Cli) -> Result<(), Error> {
@@ -292,93 +331,52 @@ fn cmd_init(cli: &Cli) -> Result<(), Error> {
 }
 
 fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let id = store.allocate_id()?;
-
-    let mut task = Task::new(id, args.title.clone());
-    task.priority = args.priority.unwrap_or_default();
-    task.labels = args.label.iter().cloned().collect();
-    task.parent = args.parent;
-    task.depends = args.dep.iter().copied().collect();
-    task.description = args.description.as_deref().and_then(normalize_description);
-
-    if args.parent.is_some() || !args.dep.is_empty() {
-        let all_tasks = store.load_all_tasks()?;
-        let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
-        known_ids.extend(store.load_archived_ids()?);
-
-        if let Some(parent) = args.parent {
-            validate_parent(&all_tasks, &known_ids, id, parent)?;
-        }
-        if !args.dep.is_empty() {
-            validate_deps_exist(&known_ids, &args.dep)?;
-            validate_dag(&all_tasks, Some(&task))?;
-        }
-    }
-
-    store.write_task(&task)?;
+    let store = find_store()?;
+    let task = ops::create_task(
+        &store,
+        ops::NewTask {
+            title: args.title.clone(),
+            priority: args.priority,
+            labels: args.label.clone(),
+            parent: args.parent,
+            deps: args.dep.clone(),
+            description: args.description.clone(),
+        },
+    )?;
 
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&task)?);
     } else if args.quiet {
-        println!("{id}");
+        println!("{}", task.id);
     } else {
-        println!("Created task {id}: {}", args.title);
+        println!("Created task {}: {}", task.id, args.title);
     }
     Ok(())
 }
 
 fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let mut task = store.read_task(id)?;
-
-    let all_tasks = store.load_all_tasks()?;
-    let mut done_ids: HashSet<TaskId> = all_tasks
-        .iter()
-        .filter(|t| t.status.is_resolved())
-        .map(|t| t.id)
-        .collect();
-    done_ids.extend(store.load_archived_ids()?);
-    // Strip resolved deps so agents don't see false blockers.
-    task.depends.retain(|d| !done_ids.contains(d));
-
-    let task_is_archived = !all_tasks.iter().any(|t| t.id == id);
-    let parent_task = task
-        .parent
-        .and_then(|pid| all_tasks.iter().find(|t| t.id == pid));
-    let dep_tasks: Vec<&Task> = task
-        .depends
-        .iter()
-        .filter_map(|id| all_tasks.iter().find(|t| t.id == *id))
-        .collect();
-    let archived_children: Vec<Task> = if include_archived || task_is_archived {
-        store
-            .load_archived_tasks()?
-            .into_iter()
-            .filter(|t| t.parent == Some(id))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let mut children: Vec<&Task> = all_tasks
-        .iter()
-        .filter(|t| t.parent == Some(id))
-        .chain(archived_children.iter())
-        .collect();
-    children.sort_by(|a, b| a.sort_key(&done_ids).cmp(&b.sort_key(&done_ids)));
+    let store = find_store()?;
+    let ctx = ops::load_task_context(&store, id, include_archived)?;
 
     if cli.json {
-        let mut value = serde_json::to_value(&task)?;
-        let ids: Vec<TaskId> = children.iter().map(|c| c.id).collect();
+        let mut value = serde_json::to_value(&ctx.task)?;
+        let ids: Vec<TaskId> = ctx.children.iter().map(|c| c.id).collect();
         value["children"] = serde_json::to_value(ids)?;
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
+        let dep_refs: Vec<&Task> = ctx.deps.iter().collect();
+        let child_refs: Vec<&Task> = ctx.children.iter().collect();
         print!(
             "{}",
-            format::format_task_detail(&task, parent_task, &dep_tasks, &children, &done_ids, width,)
+            format::format_task_detail(
+                &ctx.task,
+                ctx.parent.as_ref(),
+                &dep_refs,
+                &child_refs,
+                &ctx.done_ids,
+                width,
+            )
         );
     }
     Ok(())
@@ -391,31 +389,18 @@ fn cmd_list(
     labels: &[String],
     include_archived: bool,
 ) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
+    let store = find_store()?;
     let mut tasks = store.load_all_tasks()?;
     if include_archived {
         tasks.extend(store.load_archived_tasks()?);
         tasks.sort_by_key(|t| t.id);
     }
-    let mut done_ids: HashSet<TaskId> = tasks
-        .iter()
-        .filter(|t| t.status.is_resolved())
-        .map(|t| t.id)
-        .collect();
-    if !include_archived {
-        done_ids.extend(store.load_archived_ids()?);
-    }
+    let done_ids = ops::resolved_ids(&store, &tasks)?;
 
-    let filtered: Vec<Task>;
+    let filtered;
     let needs_filter = status.is_some() || !labels.is_empty();
     let display = if needs_filter {
-        filtered = tasks
-            .iter()
-            .filter(|t| status.is_none_or(|s| t.status == s))
-            .filter(|t| labels.is_empty() || t.labels.iter().any(|l| labels.contains(l)))
-            .cloned()
-            .collect();
+        filtered = ops::filter_tasks(&tasks, status, labels);
         &filtered
     } else {
         &tasks
@@ -432,106 +417,28 @@ fn cmd_list(
 }
 
 fn cmd_edit(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let (mut task, mtime) = store.read_task_with_mtime(args.id)?;
-    let original = task.clone();
+    let store = find_store()?;
+    let edits = ops::Edits::from(&args.mods);
+    let (task, changed) = ops::apply_edits(&store, args.id, &edits)?;
 
-    if let Some(t) = &args.mods.title {
-        task.title = t.clone();
-    }
-    if let Some(s) = args.mods.status {
-        task.status = s;
-    }
-    if let Some(p) = args.mods.priority {
-        task.priority = p;
-    }
-    if let Some(d) = &args.mods.description {
-        task.description = normalize_description(d);
-    }
-    if let Some(p) = args.mods.parent {
-        task.parent = Some(p);
-    }
-    if args.mods.no_parent {
-        task.parent = None;
-    }
-    for label in &args.mods.add_label {
-        task.labels.insert(label.clone());
-    }
-    task.labels.retain(|l| !args.mods.rm_label.contains(l));
-    for &dep in &args.mods.add_dep {
-        task.depends.insert(dep);
-    }
-    task.depends.retain(|d| !args.mods.rm_dep.contains(d));
-
-    if task == original {
+    if changed {
+        print_task(cli, &task, format_args!("Updated task {}", args.id))?;
+    } else {
         print_task(cli, &task, format_args!("No changes to task {}", args.id))?;
-        return Ok(());
     }
-
-    let needs_validation = args.mods.parent.is_some() || !args.mods.add_dep.is_empty();
-    let needs_completion =
-        !args.mods.force && task.status == Status::Done && original.status != Status::Done;
-
-    if needs_validation || needs_completion {
-        let all_tasks = store.load_all_tasks()?;
-        let archived_ids = store.load_archived_ids()?;
-
-        if needs_validation {
-            let mut known_ids: HashSet<TaskId> = all_tasks.iter().map(|t| t.id).collect();
-            known_ids.extend(&archived_ids);
-
-            if let Some(parent) = args.mods.parent {
-                validate_parent(&all_tasks, &known_ids, args.id, parent)?;
-            }
-            if !args.mods.add_dep.is_empty() {
-                validate_deps_exist(&known_ids, &args.mods.add_dep)?;
-                validate_dag(&all_tasks, Some(&task))?;
-            }
-        }
-
-        if needs_completion {
-            validate_completion(&all_tasks, &archived_ids, &task)?;
-        }
-    }
-
-    task.modified = Utc::now();
-    store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Updated task {}", args.id))?;
     Ok(())
 }
 
 fn cmd_edit_interactive(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
-    let editor = env::var("VISUAL")
-        .or_else(|_| env::var("EDITOR"))
-        .map_err(|_| Error::NoEditor)?;
-
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
+    let store = find_store()?;
     let (mut task, mtime) = store.read_task_with_mtime(args.id)?;
 
     let original = task.description.as_deref().unwrap_or("");
-    let mut tmpfile = tempfile::Builder::new().suffix(".md").tempfile()?;
-    tmpfile.write_all(original.as_bytes())?;
-
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("{} \"$1\"", &editor))
-        .arg("--")
-        .arg(tmpfile.path())
-        .status()?;
-    if !status.success() {
-        return Err(Error::EditorFailed(status));
-    }
-
-    let edited = fs::read_to_string(tmpfile.path())?;
-    let trimmed = edited.trim();
-
-    if trimmed == original.trim() {
+    let Some(edited) = ops::edit_in_editor(original)? else {
         return Ok(());
-    }
+    };
 
-    task.description = normalize_description(trimmed);
+    task.description = ops::normalize_description(&edited);
     task.modified = Utc::now();
     store.write_task_checked(&task, mtime)?;
     print_task(cli, &task, format_args!("Updated task {}", args.id))?;
@@ -539,65 +446,38 @@ fn cmd_edit_interactive(cli: &Cli, args: &EditArgs) -> Result<(), Error> {
 }
 
 fn cmd_start(cli: &Cli, id: TaskId) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let (mut task, mtime) = store.read_task_with_mtime(id)?;
+    let store = find_store()?;
+    let (task, changed) = ops::start_task(&store, id)?;
 
-    if task.status == Status::InProgress {
+    if changed {
+        print_task(cli, &task, format_args!("Task {id} marked in-progress"))?;
+    } else {
         print_task(cli, &task, format_args!("Task {id} is already in-progress"))?;
-        return Ok(());
     }
-    if task.status.is_resolved() {
-        return Err(Error::CannotStart(id, task.status));
-    }
-
-    task.status = Status::InProgress;
-    task.modified = Utc::now();
-    store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked in-progress"))?;
     Ok(())
 }
 
 fn cmd_done(cli: &Cli, id: TaskId, force: bool) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let (mut task, mtime) = store.read_task_with_mtime(id)?;
+    let store = find_store()?;
+    let (task, changed) = ops::complete_task(&store, id, force)?;
 
-    if task.status == Status::Done {
+    if changed {
+        print_task(cli, &task, format_args!("Task {id} marked done"))?;
+    } else {
         print_task(cli, &task, format_args!("Task {id} is already done"))?;
-        return Ok(());
     }
-
-    if !force {
-        let all_tasks = store.load_all_tasks()?;
-        let archived_ids = store.load_archived_ids()?;
-        validate_completion(&all_tasks, &archived_ids, &task)?;
-    }
-
-    task.status = Status::Done;
-    task.modified = Utc::now();
-    store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked done"))?;
     Ok(())
 }
 
 fn cmd_drop(cli: &Cli, id: TaskId) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let (mut task, mtime) = store.read_task_with_mtime(id)?;
+    let store = find_store()?;
+    let (task, changed) = ops::drop_task(&store, id)?;
 
-    if task.status == Status::Dropped {
+    if changed {
+        print_task(cli, &task, format_args!("Task {id} marked dropped"))?;
+    } else {
         print_task(cli, &task, format_args!("Task {id} is already dropped"))?;
-        return Ok(());
     }
-    if task.status == Status::Done {
-        return Err(Error::CannotDrop(id));
-    }
-
-    task.status = Status::Dropped;
-    task.modified = Utc::now();
-    store.write_task_checked(&task, mtime)?;
-    print_task(cli, &task, format_args!("Task {id} marked dropped"))?;
     Ok(())
 }
 
@@ -686,8 +566,7 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
 }
 
 fn cmd_log(cli: &Cli, id: TaskId, message: &str, agent: Option<&str>) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
+    let store = find_store()?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
 
     task.log.push(task::LogEntry {
@@ -702,47 +581,31 @@ fn cmd_log(cli: &Cli, id: TaskId, message: &str, agent: Option<&str>) -> Result<
 }
 
 fn cmd_next(cli: &Cli) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
-    let all_tasks = store.load_all_tasks()?;
-    let mut done_ids: HashSet<TaskId> = all_tasks
-        .iter()
-        .filter(|t| t.status.is_resolved())
-        .map(|t| t.id)
-        .collect();
-    done_ids.extend(store.load_archived_ids()?);
-    let has_incomplete_child: HashSet<TaskId> = all_tasks
-        .iter()
-        .filter(|t| !t.status.is_resolved())
-        .filter_map(|t| t.parent)
-        .collect();
-    let mut ready: Vec<Task> = all_tasks
-        .iter()
-        .filter(|t| {
-            t.status == Status::Todo
-                && t.depends.iter().all(|d| done_ids.contains(d))
-                && !has_incomplete_child.contains(&t.id)
-        })
-        .cloned()
-        .collect();
-    ready.sort_by(|a, b| a.sort_key(&done_ids).cmp(&b.sort_key(&done_ids)));
+    let store = find_store()?;
+    let result = ops::get_ready_tasks(&store)?;
 
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(&ready, &done_ids, &all_tasks))?
+            serde_json::to_string_pretty(&prepare_json(
+                &result.ready,
+                &result.done_ids,
+                &result.all_tasks
+            ))?
         );
-    } else if ready.is_empty() {
+    } else if result.ready.is_empty() {
         println!("No tasks ready.");
     } else {
-        print!("{}", format::format_task_list(&ready, true, &done_ids));
+        print!(
+            "{}",
+            format::format_task_list(&result.ready, true, &result.done_ids)
+        );
     }
     Ok(())
 }
 
 fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
-    let cwd = env::current_dir()?;
-    let store = Store::find(&cwd)?;
+    let store = find_store()?;
     let all_tasks = store.load_all_tasks()?;
 
     let cutoff_time = match cutoff {
@@ -794,32 +657,13 @@ fn print_task(cli: &Cli, task: &Task, message: impl std::fmt::Display) -> Result
     Ok(())
 }
 
-fn normalize_description(s: &str) -> Option<String> {
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn children_map(all_tasks: &[Task]) -> HashMap<TaskId, Vec<TaskId>> {
-    let mut map: HashMap<TaskId, Vec<TaskId>> = HashMap::new();
-    for t in all_tasks {
-        if let Some(pid) = t.parent {
-            map.entry(pid).or_default().push(t.id);
-        }
-    }
-    map
-}
-
 /// Strip resolved deps and inject children IDs so agents get the full task graph.
 fn prepare_json(
     tasks: &[impl std::borrow::Borrow<Task>],
     done_ids: &HashSet<TaskId>,
     all_tasks: &[Task],
 ) -> Vec<serde_json::Value> {
-    let children = children_map(all_tasks);
+    let children = ops::children_map(all_tasks);
     let mut tasks: Vec<Task> = tasks
         .iter()
         .map(|t| {
@@ -839,35 +683,4 @@ fn prepare_json(
             v
         })
         .collect()
-}
-
-fn validate_completion(
-    all_tasks: &[Task],
-    archived_ids: &HashSet<TaskId>,
-    task: &Task,
-) -> Result<(), Error> {
-    let task_map: HashMap<TaskId, &Task> = all_tasks.iter().map(|t| (t.id, t)).collect();
-
-    let unmet: Vec<TaskId> = task
-        .depends
-        .iter()
-        .filter(|dep_id| match task_map.get(dep_id) {
-            Some(dep) => !dep.status.is_resolved(),
-            None => !archived_ids.contains(dep_id),
-        })
-        .copied()
-        .collect();
-    if !unmet.is_empty() {
-        return Err(Error::UnmetDependencies(unmet));
-    }
-
-    let incomplete: Vec<TaskId> = all_tasks
-        .iter()
-        .filter(|t| t.parent == Some(task.id) && !t.status.is_resolved())
-        .map(|t| t.id)
-        .collect();
-    if !incomplete.is_empty() {
-        return Err(Error::IncompleteChildren(incomplete));
-    }
-    Ok(())
 }

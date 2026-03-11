@@ -62,9 +62,9 @@ impl Status {
         use anstyle::AnsiColor;
         match self {
             Self::Todo => Style {
-                symbol: " ",
+                symbol: "○",
                 label: "todo",
-                color: AnsiColor::Yellow.on_default(),
+                color: anstyle::Style::new(),
             },
             Self::InProgress => Style {
                 symbol: "●",
@@ -153,7 +153,7 @@ impl Priority {
                 color: AnsiColor::Yellow.on_default(),
             },
             Self::Normal => Style {
-                symbol: " ",
+                symbol: "○",
                 label: "normal",
                 color: anstyle::Style::new(),
             },
@@ -232,6 +232,22 @@ pub struct Task {
 }
 
 impl Task {
+    pub const BLOCKED: Style = Style {
+        symbol: "⋯",
+        label: "blocked",
+        color: anstyle::AnsiColor::Red.on_default(),
+    };
+
+    pub fn indicator(&self, blocked: bool) -> Style {
+        if blocked {
+            return Self::BLOCKED;
+        }
+        match self.status {
+            Status::Todo => self.priority.style(),
+            _ => self.status.style(),
+        }
+    }
+
     pub fn is_blocked(&self, done_ids: &HashSet<TaskId>) -> bool {
         self.status == Status::Todo
             && !self.depends.is_empty()
@@ -589,4 +605,35 @@ fn has_cycle(
 
     in_stack.remove(&id);
     false
+}
+
+pub fn validate_completion(
+    all_tasks: &[Task],
+    archived_ids: &HashSet<TaskId>,
+    task: &Task,
+) -> Result<(), Error> {
+    let task_map: HashMap<TaskId, &Task> = all_tasks.iter().map(|t| (t.id, t)).collect();
+
+    let unmet: Vec<TaskId> = task
+        .depends
+        .iter()
+        .filter(|dep_id| match task_map.get(dep_id) {
+            Some(dep) => !dep.status.is_resolved(),
+            None => !archived_ids.contains(dep_id),
+        })
+        .copied()
+        .collect();
+    if !unmet.is_empty() {
+        return Err(Error::UnmetDependencies(unmet));
+    }
+
+    let incomplete: Vec<TaskId> = all_tasks
+        .iter()
+        .filter(|t| t.parent == Some(task.id) && !t.status.is_resolved())
+        .map(|t| t.id)
+        .collect();
+    if !incomplete.is_empty() {
+        return Err(Error::IncompleteChildren(incomplete));
+    }
+    Ok(())
 }
