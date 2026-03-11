@@ -25,15 +25,12 @@ pub const PRIORITIES: [Priority; 4] = [
 pub const DEFAULT_PRIORITY_INDEX: usize = 2; // Normal
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
-    let [left, right] =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .areas(frame.area());
+    let [main_area, footer_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-    // Reserve bottom row for footer.
-    let [tree_area, footer_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(left);
-    let [detail_area, _] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(right);
+    let [tree_area, detail_area] =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .areas(main_area);
 
     // Store areas for mouse hit-testing in event handler.
     app.tree_area = tree_area;
@@ -350,40 +347,62 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let hints: &[&[keys::Hint]] = match app.focused_panel {
+    let tables: &[&[keys::Hint]] = match app.focused_panel {
         Panel::Tree => &[keys::TREE, keys::GLOBAL],
         Panel::Detail => &[keys::DETAIL, keys::GLOBAL],
     };
-    render_hints(frame, area, hints);
+    render_hints(frame, area, tables);
+}
+
+fn hint_spans(hint: &keys::Hint) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(
+            format!(" {} ", hint.label),
+            Style::new().fg(Color::Black).bg(Color::DarkGray),
+        ),
+        Span::styled(
+            format!(" {} ", hint.description),
+            Style::new().fg(Color::DarkGray),
+        ),
+    ]
 }
 
 fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
     let visible: Vec<&keys::Hint> = tables
         .iter()
         .flat_map(|t| t.iter())
-        .filter(|h| !h.label.is_empty())
+        .filter(|h| h.footer)
         .collect();
-    let spans: Vec<Span> = visible
+
+    // Separate right-aligned hints (GLOBAL footer hints like "? help").
+    let (right, left): (Vec<_>, Vec<_>) = visible.into_iter().partition(|h| {
+        h.keys
+            .first()
+            .is_some_and(|(_, c)| *c == keys::Command::ShowHelp)
+    });
+
+    let mut left_spans: Vec<Span> = left
         .iter()
         .enumerate()
         .flat_map(|(i, hint)| {
-            let mut s = vec![
-                Span::styled(
-                    format!(" {} ", hint.label),
-                    Style::new().fg(Color::Black).bg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!(" {} ", hint.description),
-                    Style::new().fg(Color::DarkGray),
-                ),
-            ];
-            if i < visible.len() - 1 {
+            let mut s = hint_spans(hint);
+            if i < left.len() - 1 {
                 s.push(Span::raw(" "));
             }
             s
         })
         .collect();
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+
+    if !right.is_empty() {
+        let right_spans: Vec<Span> = right.iter().flat_map(|h| hint_spans(h)).collect();
+        let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
+        let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
+        let gap = (area.width as usize).saturating_sub(left_width + right_width);
+        left_spans.push(Span::raw(" ".repeat(gap)));
+        left_spans.extend(right_spans);
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(left_spans)), area);
 }
 
 fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
