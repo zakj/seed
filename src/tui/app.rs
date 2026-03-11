@@ -72,7 +72,6 @@ impl App {
         };
         app.dir_mtime = app.current_mtime();
         app.open_all_parents();
-        app.tree_state.select_first();
         Ok(app)
     }
 

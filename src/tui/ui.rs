@@ -40,6 +40,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.detail_area = detail_area;
 
     draw_tree(frame, app, tree_area);
+    if app.selected_task().is_none() {
+        app.tree_state.select_first();
+    }
     draw_detail(frame, app, detail_area);
     draw_footer(frame, app, footer_area);
 
