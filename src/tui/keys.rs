@@ -18,6 +18,7 @@ pub enum Command {
     StartTask,
     CompleteTask,
     DropTask,
+    CopyId,
     PriorityMode,
     ScrollDown,
     ScrollUp,
@@ -26,7 +27,6 @@ pub enum Command {
     SetHigh,
     SetNormal,
     SetLow,
-    CopyId,
     Cancel,
     Confirm,
 }
