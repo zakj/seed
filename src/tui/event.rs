@@ -5,12 +5,14 @@ use ratatui::layout::Position;
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
 
-use super::app::{self, App, EditState, Panel};
+use std::collections::HashSet;
+
+use super::app::{self, App, DepState, EditState, MoveState, Panel};
 use super::keys::{self, Command};
 use crate::error::Error;
 use crate::ops::{self, Edits};
 use crate::store::Store;
-use crate::task::{Priority, Task, TaskId};
+use crate::task::{self, Priority, Task, TaskId};
 
 pub enum Action {
     Continue,
@@ -55,8 +57,16 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
         return handle_priority_key(app, code);
     }
 
+    if app.move_state.is_some() {
+        return handle_move_key(app, code);
+    }
+
+    if app.dep_state.is_some() {
+        return handle_dep_key(app, code);
+    }
+
     let tables: &[&[keys::Hint]] = match app.focused_panel {
-        Panel::Tree => &[keys::GLOBAL, keys::TREE],
+        Panel::Tree => &[keys::GLOBAL, keys::NAV, keys::TREE],
         Panel::Detail => &[keys::GLOBAL, keys::DETAIL],
     };
     let Some(cmd) = keys::resolve(tables, code) else {
@@ -66,8 +76,17 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
 }
 
 fn execute(app: &mut App, cmd: Command) -> Action {
+    if app.focused_panel == Panel::Tree
+        && let Some(action) = handle_tree_nav(app, cmd)
+    {
+        return action;
+    }
+
     match cmd {
         Command::Quit => return Action::Quit,
+        Command::ShowHelp => {
+            app.help_scroll = Some(0);
+        }
         Command::TogglePanel => {
             app.focused_panel = match app.focused_panel {
                 Panel::Tree => Panel::Detail,
@@ -75,40 +94,13 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             };
         }
 
-        // Tree navigation
-        Command::NavigateDown => navigate(app, |ts| {
-            ts.key_down();
-        }),
-        Command::NavigateUp => navigate(app, |ts| {
-            ts.key_up();
-        }),
-        Command::SiblingDown => sibling_navigate(app, 1),
-        Command::SiblingUp => sibling_navigate(app, -1),
-        Command::Collapse => {
-            app.tree_state.key_left();
-        }
-        Command::Expand => {
-            app.tree_state.key_right();
-        }
         Command::Toggle => {
             app.tree_state.toggle_selected();
         }
-        Command::First => match app.focused_panel {
-            Panel::Tree => {
-                app.tree_state.select_first();
-                app.detail_scroll = 0;
-            }
-            Panel::Detail => app.detail_scroll = 0,
-        },
-        Command::Last => match app.focused_panel {
-            Panel::Tree => {
-                app.tree_state.select_last();
-                app.detail_scroll = 0;
-            }
-            Panel::Detail => app.detail_scroll = u16::MAX,
-        },
 
-        // Detail scrolling
+        // Detail pane
+        Command::First => app.detail_scroll = 0,
+        Command::Last => app.detail_scroll = u16::MAX,
         Command::ScrollDown => {
             app.detail_scroll = app.detail_scroll.saturating_add(1);
         }
@@ -165,10 +157,6 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             }
         }
 
-        Command::ShowHelp => {
-            app.help_scroll = Some(0);
-        }
-
         Command::PriorityMode => {
             if let Some(task) = app.selected_task() {
                 let idx = super::ui::PRIORITIES
@@ -176,6 +164,29 @@ fn execute(app: &mut App, cmd: Command) -> Action {
                     .position(|&p| p == task.priority)
                     .unwrap_or(super::ui::DEFAULT_PRIORITY_INDEX);
                 app.priority_selection = Some(idx);
+            }
+        }
+
+        Command::MoveMode => {
+            if let Some(task) = app.selected_task() {
+                let invalid = app::descendants(task.id, &app.children_map, &app.tasks);
+                app.move_state = Some(MoveState {
+                    task_id: task.id,
+                    original_parent: task.parent,
+                    invalid_targets: invalid,
+                });
+            }
+        }
+
+        Command::DepMode => {
+            if let Some(task) = app.selected_task() {
+                let original_deps = task.depends.iter().copied().collect();
+                app.dep_state = Some(DepState {
+                    task_id: task.id,
+                    original_deps,
+                    added: HashSet::new(),
+                    removed: HashSet::new(),
+                });
             }
         }
 
@@ -294,6 +305,232 @@ fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
             Ok((_, false)) => app.set_status("Priority unchanged"),
             Err(e) => app.set_status(e.to_string()),
         }
+    }
+    Action::Continue
+}
+
+/// Handle navigation commands shared across tree/move/dep modes.
+/// Returns `Some(Action)` if the command was a global or nav command, `None` otherwise.
+fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
+    match cmd {
+        Command::Quit => Some(Action::Quit),
+        Command::ShowHelp => {
+            app.help_scroll = Some(0);
+            Some(Action::Continue)
+        }
+        Command::NavigateDown => {
+            navigate(app, |ts| {
+                ts.key_down();
+            });
+            Some(Action::Continue)
+        }
+        Command::NavigateUp => {
+            navigate(app, |ts| {
+                ts.key_up();
+            });
+            Some(Action::Continue)
+        }
+        Command::SiblingDown => {
+            sibling_navigate(app, 1);
+            Some(Action::Continue)
+        }
+        Command::SiblingUp => {
+            sibling_navigate(app, -1);
+            Some(Action::Continue)
+        }
+        Command::Collapse => {
+            app.tree_state.key_left();
+            Some(Action::Continue)
+        }
+        Command::Expand => {
+            app.tree_state.key_right();
+            Some(Action::Continue)
+        }
+        Command::First => {
+            app.tree_state.select_first();
+            app.detail_scroll = 0;
+            Some(Action::Continue)
+        }
+        Command::Last => {
+            app.tree_state.select_last();
+            app.detail_scroll = 0;
+            Some(Action::Continue)
+        }
+        _ => None,
+    }
+}
+
+fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
+    let Some(cmd) = keys::resolve(&[keys::GLOBAL, keys::NAV, keys::MOVE], code) else {
+        return Action::Continue;
+    };
+
+    if let Some(action) = handle_tree_nav(app, cmd) {
+        return action;
+    }
+
+    match cmd {
+        Command::Unparent => {
+            let ms = app.move_state.as_ref().unwrap();
+            if ms.original_parent.is_none() {
+                app.set_status("Already a root task");
+                return Action::Continue;
+            }
+            let task_id = ms.task_id;
+            app.move_state = None;
+            let edits = Edits {
+                parent: Some(None),
+                ..Edits::default()
+            };
+            match ops::apply_edits(&app.store, task_id, &edits) {
+                Ok(_) => {
+                    let _ = app.reload();
+                    select_task(app, task_id);
+                    app.set_status("Task unparented");
+                }
+                Err(e) => {
+                    app.set_status(e.to_string());
+                    select_task(app, task_id);
+                }
+            }
+        }
+        Command::Confirm => {
+            let ms = app.move_state.as_ref().unwrap();
+            let task_id = ms.task_id;
+            let new_parent = app.selected_task().map(|t| t.id);
+
+            // Validate: can't move under self or own descendant.
+            if let Some(target) = new_parent
+                && (target == task_id || ms.invalid_targets.contains(&target))
+            {
+                app.set_status("Cannot move under own descendant");
+                return Action::Continue;
+            }
+
+            // Check if actually changed.
+            if new_parent == ms.original_parent {
+                app.move_state = None;
+                select_task(app, task_id);
+                return Action::Continue;
+            }
+
+            // Validate parent chain.
+            if let Some(target) = new_parent {
+                let task_ids: HashSet<TaskId> = app.tasks.iter().map(|t| t.id).collect();
+                if let Err(e) = task::validate_parent(&app.tasks, &task_ids, task_id, target) {
+                    app.set_status(e.to_string());
+                    return Action::Continue;
+                }
+            }
+
+            app.move_state = None;
+            let edits = Edits {
+                parent: Some(new_parent),
+                ..Edits::default()
+            };
+            match ops::apply_edits(&app.store, task_id, &edits) {
+                Ok(_) => {
+                    let _ = app.reload();
+                    if let Some(parent_id) = new_parent {
+                        let path = app::identifier_path(parent_id, &app.parent_map);
+                        app.tree_state.open(path);
+                    }
+                    select_task(app, task_id);
+                    app.set_status("Task moved");
+                }
+                Err(e) => {
+                    app.set_status(e.to_string());
+                    select_task(app, task_id);
+                }
+            }
+        }
+        Command::Cancel => {
+            let task_id = app.move_state.as_ref().unwrap().task_id;
+            app.move_state = None;
+            select_task(app, task_id);
+        }
+        _ => {}
+    }
+    Action::Continue
+}
+
+fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
+    let Some(cmd) = keys::resolve(&[keys::GLOBAL, keys::NAV, keys::DEP], code) else {
+        return Action::Continue;
+    };
+
+    if let Some(action) = handle_tree_nav(app, cmd) {
+        return action;
+    }
+
+    match cmd {
+        Command::ToggleDep => {
+            let Some(selected) = app.selected_task() else {
+                return Action::Continue;
+            };
+            let selected_id = selected.id;
+            let ds = app.dep_state.as_mut().unwrap();
+
+            if selected_id == ds.task_id {
+                app.set_status("Cannot depend on self");
+                return Action::Continue;
+            }
+
+            let is_effective_dep = ds.is_effective_dep(selected_id);
+
+            if is_effective_dep {
+                // Toggle off.
+                if ds.added.contains(&selected_id) {
+                    ds.added.remove(&selected_id);
+                } else {
+                    ds.removed.insert(selected_id);
+                }
+            } else {
+                // Toggle on — validate DAG first.
+                let subject = app.tasks.iter().find(|t| t.id == ds.task_id).unwrap();
+                let mut test_task = subject.clone();
+                // Apply pending edits to get effective dep set.
+                for &id in &ds.added {
+                    test_task.depends.insert(id);
+                }
+                for &id in &ds.removed {
+                    test_task.depends.remove(&id);
+                }
+                test_task.depends.insert(selected_id);
+                if task::validate_dag(&app.tasks, Some(&test_task)).is_err() {
+                    app.set_status("Would create a dependency cycle");
+                    return Action::Continue;
+                }
+                if ds.removed.contains(&selected_id) {
+                    ds.removed.remove(&selected_id);
+                } else {
+                    ds.added.insert(selected_id);
+                }
+            }
+        }
+        Command::Confirm => {
+            let ds = app.dep_state.take().unwrap();
+            if !ds.added.is_empty() || !ds.removed.is_empty() {
+                let edits = Edits {
+                    add_deps: ds.added.into_iter().collect(),
+                    rm_deps: ds.removed.into_iter().collect(),
+                    ..Edits::default()
+                };
+                match ops::apply_edits(&app.store, ds.task_id, &edits) {
+                    Ok(_) => {
+                        let _ = app.reload();
+                        app.set_status("Dependencies updated");
+                    }
+                    Err(e) => app.set_status(e.to_string()),
+                }
+            }
+            select_task(app, ds.task_id);
+        }
+        Command::Cancel => {
+            let ds = app.dep_state.take().unwrap();
+            select_task(app, ds.task_id);
+        }
+        _ => {}
     }
     Action::Continue
 }

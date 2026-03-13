@@ -15,6 +15,26 @@ pub struct EditState {
     pub error: Option<String>,
 }
 
+pub struct MoveState {
+    pub task_id: TaskId,
+    pub original_parent: Option<TaskId>,
+    pub invalid_targets: HashSet<TaskId>,
+}
+
+pub struct DepState {
+    pub task_id: TaskId,
+    pub original_deps: HashSet<TaskId>,
+    pub added: HashSet<TaskId>,
+    pub removed: HashSet<TaskId>,
+}
+
+impl DepState {
+    pub fn is_effective_dep(&self, id: TaskId) -> bool {
+        (self.original_deps.contains(&id) && !self.removed.contains(&id))
+            || self.added.contains(&id)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
     Tree,
@@ -36,6 +56,8 @@ pub struct App {
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
     pub edit_state: Option<EditState>,
+    pub move_state: Option<MoveState>,
+    pub dep_state: Option<DepState>,
     pub status_message: Option<(String, Instant)>,
     pub priority_selection: Option<usize>,
     pub help_scroll: Option<u16>,
@@ -66,6 +88,8 @@ impl App {
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
             edit_state: None,
+            move_state: None,
+            dep_state: None,
             status_message: None,
             priority_selection: None,
             help_scroll: None,
@@ -126,6 +150,23 @@ impl App {
     }
 }
 
+/// Collect all descendant IDs of a task via the children map.
+pub fn descendants(task_id: TaskId, children_map: &ChildrenMap, tasks: &[Task]) -> HashSet<TaskId> {
+    let mut result = HashSet::new();
+    let mut stack = vec![task_id];
+    while let Some(id) = stack.pop() {
+        if let Some(indices) = children_map.get(&Some(id)) {
+            for &idx in indices {
+                let child_id = tasks[idx].id;
+                if result.insert(child_id) {
+                    stack.push(child_id);
+                }
+            }
+        }
+    }
+    result
+}
+
 /// Count visible tree items (expanded nodes + their visible children).
 pub fn visible_item_count(
     children_map: &ChildrenMap,
@@ -160,14 +201,21 @@ fn count_visible(
     count
 }
 
+/// Overlay context for rendering tree items in move/dep mode.
+pub enum TreeOverlay<'a> {
+    Move(&'a MoveState),
+    Dep(&'a DepState),
+}
+
 /// Build tree items from cached children map for tui-tree-widget.
 pub fn build_tree_items<'a>(
     tasks: &'a [Task],
     done_ids: &HashSet<TaskId>,
     children_map: &ChildrenMap,
     inner_width: u16,
+    overlay: Option<&TreeOverlay<'_>>,
 ) -> Vec<TreeItem<'a, TaskId>> {
-    build_tree_children(None, children_map, tasks, done_ids, inner_width, 0)
+    build_tree_children(None, children_map, tasks, done_ids, inner_width, 0, overlay)
 }
 
 fn build_tree_children<'a>(
@@ -177,6 +225,7 @@ fn build_tree_children<'a>(
     done_ids: &HashSet<TaskId>,
     inner_width: u16,
     depth: usize,
+    overlay: Option<&TreeOverlay<'_>>,
 ) -> Vec<TreeItem<'a, TaskId>> {
     let Some(indices) = children_map.get(&parent) else {
         return Vec::new();
@@ -192,8 +241,9 @@ fn build_tree_children<'a>(
                 done_ids,
                 inner_width,
                 depth + 1,
+                overlay,
             );
-            let text = task_line(task, done_ids, inner_width, depth);
+            let text = task_line(task, done_ids, inner_width, depth, overlay);
             if grandchildren.is_empty() {
                 TreeItem::new_leaf(task.id, text)
             } else {
@@ -246,28 +296,90 @@ pub fn identifier_path(id: TaskId, parent_map: &HashMap<TaskId, TaskId>) -> Vec<
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+/// Resolved styling for a single task in the tree, based on overlay state.
+#[derive(Default)]
+struct TaskStyle {
+    prefix: &'static str,
+    prefix_color: Color,
+    style_override: Option<Style>,
+}
+
+fn resolve_task_style(task_id: TaskId, overlay: Option<&TreeOverlay<'_>>) -> TaskStyle {
+    let accent = Style::new().fg(Color::Yellow);
+    match overlay {
+        Some(TreeOverlay::Move(ms)) => {
+            if task_id == ms.task_id {
+                TaskStyle {
+                    style_override: Some(accent),
+                    ..Default::default()
+                }
+            } else if ms.invalid_targets.contains(&task_id) {
+                TaskStyle {
+                    style_override: Some(Style::new().fg(Color::Red).add_modifier(Modifier::DIM)),
+                    ..Default::default()
+                }
+            } else {
+                TaskStyle::default()
+            }
+        }
+        Some(TreeOverlay::Dep(ds)) => {
+            if task_id == ds.task_id {
+                TaskStyle {
+                    style_override: Some(accent),
+                    ..Default::default()
+                }
+            } else if ds.added.contains(&task_id) {
+                TaskStyle {
+                    prefix: "[+] ",
+                    prefix_color: Color::Green,
+                    ..Default::default()
+                }
+            } else if ds.removed.contains(&task_id) {
+                TaskStyle {
+                    prefix: "[-] ",
+                    prefix_color: Color::Red,
+                    ..Default::default()
+                }
+            } else if ds.original_deps.contains(&task_id) {
+                TaskStyle {
+                    prefix: "[✓] ",
+                    prefix_color: Color::DarkGray,
+                    ..Default::default()
+                }
+            } else {
+                TaskStyle::default()
+            }
+        }
+        None => TaskStyle::default(),
+    }
+}
+
 fn task_line<'a>(
     task: &'a Task,
     done_ids: &HashSet<TaskId>,
     inner_width: u16,
     depth: usize,
+    overlay: Option<&TreeOverlay<'_>>,
 ) -> Line<'a> {
     use unicode_width::UnicodeWidthStr;
 
     let indicator = task.indicator(task.is_blocked(done_ids));
     let resolved = task.status.is_resolved();
     let dim = Style::new().add_modifier(Modifier::DIM);
+    let ts = resolve_task_style(task.id, overlay);
 
     let id_str = format!("#{}", task.id);
+    let prefix_w = UnicodeWidthStr::width(ts.prefix);
     // Content width: inner panel width minus indent (2*depth) minus node symbol (2)
     let content_width = (inner_width as usize).saturating_sub(2 * depth + 2);
     let indicator_w = 2; // symbol + space
     let id_w = id_str.len();
-    // Reserve space for at least: indicator + 1 space + id
-    let title_max = content_width.saturating_sub(indicator_w + 1 + id_w);
+    let title_max = content_width.saturating_sub(prefix_w + indicator_w + 1 + id_w);
     let title_w = UnicodeWidthStr::width(task.title.as_str());
 
-    let title_style = if resolved { dim } else { Style::default() };
+    let title_style = ts
+        .style_override
+        .unwrap_or(if resolved { dim } else { Style::default() });
 
     let (title_span, padding) = if title_w > title_max {
         let mut truncated = String::new();
@@ -283,25 +395,31 @@ fn task_line<'a>(
         truncated.push('…');
         let actual_w = UnicodeWidthStr::width(truncated.as_str());
         let pad = content_width
-            .saturating_sub(indicator_w + actual_w + id_w)
+            .saturating_sub(prefix_w + indicator_w + actual_w + id_w)
             .max(1);
         (Span::styled(truncated, title_style), pad)
     } else {
         let pad = content_width
-            .saturating_sub(indicator_w + title_w + id_w)
+            .saturating_sub(prefix_w + indicator_w + title_w + id_w)
             .max(1);
         (Span::styled(task.title.as_str(), title_style), pad)
     };
 
-    Line::from(vec![
-        Span::styled(
-            format!("{} ", indicator.symbol),
-            anstyle_to_ratatui(indicator.color),
-        ),
+    let indicator_style = ts
+        .style_override
+        .unwrap_or_else(|| anstyle_to_ratatui(indicator.color));
+
+    let mut spans = Vec::new();
+    if !ts.prefix.is_empty() {
+        spans.push(Span::styled(ts.prefix, Style::new().fg(ts.prefix_color)));
+    }
+    spans.extend([
+        Span::styled(format!("{} ", indicator.symbol), indicator_style),
         title_span,
         Span::raw(" ".repeat(padding)),
         Span::styled(id_str, dim),
-    ])
+    ]);
+    Line::from(spans)
 }
 
 pub fn anstyle_to_ratatui(s: anstyle::Style) -> Style {

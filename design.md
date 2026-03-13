@@ -156,11 +156,13 @@ Built on ratatui with crossterm backend. Scope:
 - Create tasks (`a` for root, `A` for child of selected)
 - Edit task titles inline (`e`), descriptions via `$EDITOR` (`E`)
 - Change status (`s`/`d`/`x` for start/done/drop) and priority (`p` → sub-mode)
+- Move tasks (`m` → move mode): select a new parent with Enter, `u` to unparent.
+  Descendants of the moved task are invalid targets.
+- Manage dependencies (`D` → dep mode): navigate and press Enter to toggle deps
+  on/off. Cycle detection prevents invalid additions.
 
 Declarative keybinding tables in `tui/keys.rs` are the single source of truth
 for key dispatch, footer hints, and help overlay (`?`).
-
-Dependencies and other fields are managed through the CLI.
 
 ## Agent Priming
 
