@@ -13,6 +13,7 @@ pub struct EditState {
     pub task_id: TaskId,
     pub input: Input,
     pub error: Option<String>,
+    pub is_new: bool,
 }
 
 pub struct MoveState {

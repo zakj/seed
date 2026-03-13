@@ -115,6 +115,7 @@ fn execute(app: &mut App, cmd: Command) -> Action {
                     task_id: task.id,
                     input: Input::new(task.title.clone()),
                     error: None,
+                    is_new: false,
                 });
             }
         }
@@ -551,6 +552,11 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
         KeyCode::Enter => {
             let title = edit.input.value().trim().to_string();
             if title.is_empty() {
+                if edit.is_new {
+                    let _ = app.store.delete_task(edit.task_id);
+                    let _ = app.reload();
+                    return Action::Continue;
+                }
                 edit.error = Some("Title cannot be empty".into());
                 app.edit_state = Some(edit);
                 return Action::Continue;
@@ -570,7 +576,12 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
                 return Action::Continue;
             }
         }
-        KeyCode::Esc => {}
+        KeyCode::Esc => {
+            if edit.is_new {
+                let _ = app.store.delete_task(edit.task_id);
+                let _ = app.reload();
+            }
+        }
         _ => {
             edit.error = None;
             edit.input.handle_event(ev);
@@ -601,6 +612,7 @@ fn create_and_edit_task(app: &mut App, parent: Option<TaskId>) {
                 task_id: new_id,
                 input: Input::new(String::new()),
                 error: None,
+                is_new: true,
             });
         }
     }

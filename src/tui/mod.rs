@@ -63,7 +63,9 @@ fn edit_description(
     id: TaskId,
 ) -> Result<(), Error> {
     let original = app
-        .selected_task()
+        .tasks
+        .iter()
+        .find(|t| t.id == id)
         .and_then(|t| t.description.as_deref())
         .unwrap_or("")
         .to_string();

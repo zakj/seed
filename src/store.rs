@@ -174,6 +174,12 @@ impl Store {
         Ok(())
     }
 
+    /// Remove a task file entirely. Only safe for childless tasks with no dependents.
+    pub fn delete_task(&self, id: TaskId) -> Result<(), Error> {
+        fs::remove_file(self.task_path(id))?;
+        Ok(())
+    }
+
     pub fn load_all_tasks(&self) -> Result<Vec<Task>, Error> {
         Self::load_tasks_from(&self.tasks_dir())
     }
