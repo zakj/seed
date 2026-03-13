@@ -62,14 +62,38 @@ fn focused_border_style(panel: Panel, focused: Panel) -> Style {
     }
 }
 
+fn build_overlay(app: &App) -> Option<app::TreeOverlay<'_>> {
+    if let Some(ms) = &app.move_state {
+        Some(app::TreeOverlay::Move(ms))
+    } else {
+        app.dep_state.as_ref().map(app::TreeOverlay::Dep)
+    }
+}
+
 fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner_width = area.width.saturating_sub(2);
-    let items = app::build_tree_items(&app.tasks, &app.done_ids, &app.children_map, inner_width);
+    let overlay = build_overlay(app);
+    let items = app::build_tree_items(
+        &app.tasks,
+        &app.done_ids,
+        &app.children_map,
+        inner_width,
+        overlay.as_ref(),
+    );
+
+    let title: std::borrow::Cow<str> = if let Some(ms) = &app.move_state {
+        format!(" Move #{} ", ms.task_id).into()
+    } else if let Some(ds) = &app.dep_state {
+        format!(" Deps #{} ", ds.task_id).into()
+    } else {
+        " Tasks ".into()
+    };
+
     let tree = Tree::new(&items)
         .expect("task IDs are unique")
         .block(
             Block::default()
-                .title(" Tasks ")
+                .title(title)
                 .borders(Borders::ALL)
                 .border_set(border::ROUNDED)
                 .border_style(focused_border_style(Panel::Tree, app.focused_panel)),
@@ -347,9 +371,15 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let tables: &[&[keys::Hint]] = match app.focused_panel {
-        Panel::Tree => &[keys::TREE, keys::GLOBAL],
-        Panel::Detail => &[keys::DETAIL, keys::GLOBAL],
+    let tables: &[&[keys::Hint]] = if app.move_state.is_some() {
+        &[keys::NAV, keys::MOVE, keys::GLOBAL]
+    } else if app.dep_state.is_some() {
+        &[keys::NAV, keys::DEP, keys::GLOBAL]
+    } else {
+        match app.focused_panel {
+            Panel::Tree => &[keys::NAV, keys::TREE, keys::GLOBAL],
+            Panel::Detail => &[keys::DETAIL, keys::GLOBAL],
+        }
     };
     render_hints(frame, area, tables);
 }
@@ -402,59 +432,24 @@ fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
     frame.render_widget(Paragraph::new(Line::from(left_spans)), area);
 }
 
-fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
-    let scroll = app.help_scroll.as_mut().unwrap();
+fn build_help_column(
+    sections: &[(&'static str, &[keys::Hint])],
+    bold: Style,
+    dim: Style,
+) -> (Vec<Line<'static>>, usize) {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut max_width: usize = 0;
 
-    fn is_navigation(cmd: &keys::Command) -> bool {
-        matches!(
-            cmd,
-            keys::Command::NavigateDown
-                | keys::Command::NavigateUp
-                | keys::Command::Collapse
-                | keys::Command::Expand
-                | keys::Command::Toggle
-                | keys::Command::SiblingDown
-                | keys::Command::SiblingUp
-                | keys::Command::First
-                | keys::Command::Last
-        )
-    }
-
-    type HelpSection = (
-        &'static str,
-        &'static [keys::Hint],
-        fn(&keys::Command) -> bool,
-    );
-    let sections: &[HelpSection] = &[
-        ("Navigation", keys::TREE, |c| is_navigation(c)),
-        ("Actions", keys::TREE, |c| !is_navigation(c)),
-        ("General", keys::GLOBAL, |_| true),
-        ("Detail pane", keys::DETAIL, |_| true),
-    ];
-
-    let bold = Style::new().add_modifier(Modifier::BOLD);
-    let dim = Style::new().add_modifier(Modifier::DIM);
-    let mut lines: Vec<Line> = Vec::new();
-    let mut max_line_width: usize = 0;
-
-    for (i, &(header, table, filter)) in sections.iter().enumerate() {
+    for (i, &(header, table)) in sections.iter().enumerate() {
         if i > 0 {
             lines.push(Line::default());
         }
         lines.push(Line::from(Span::styled(header, bold)));
-        max_line_width = max_line_width.max(header.len());
+        max_width = max_width.max(header.len());
 
         for hint in table.iter().filter(|h| !h.label.is_empty()) {
-            let Some((_, cmd)) = hint.keys.first() else {
-                continue;
-            };
-            if !filter(cmd) {
-                continue;
-            }
-
             let row_width = 2 + 8 + hint.description.len();
-            max_line_width = max_line_width.max(row_width);
+            max_width = max_width.max(row_width);
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(format!("{:<8}", hint.label), dim),
@@ -463,8 +458,34 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
         }
     }
 
-    let content_height = lines.len() as u16;
-    let width = ((max_line_width as u16) + 4).min(area.width);
+    (lines, max_width)
+}
+
+fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
+    let area = frame.area();
+    let scroll = app.help_scroll.as_mut().unwrap();
+
+    let left_sections: &[(&str, &[keys::Hint])] = &[
+        ("Navigation", keys::NAV),
+        ("Actions", keys::TREE),
+        ("General", keys::GLOBAL),
+    ];
+    let right_sections: &[(&str, &[keys::Hint])] = &[
+        ("Detail pane", keys::DETAIL),
+        ("Move mode", keys::MOVE),
+        ("Dep mode", keys::DEP),
+    ];
+
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    let dim = Style::new().add_modifier(Modifier::DIM);
+
+    let (left_lines, left_width) = build_help_column(left_sections, bold, dim);
+    let (right_lines, right_width) = build_help_column(right_sections, bold, dim);
+
+    let gap = 5; // 2 spaces + dim bar + 2 spaces
+    let content_width = left_width + gap + right_width;
+    let content_height = left_lines.len().max(right_lines.len()) as u16;
+    let width = ((content_width as u16) + 4).min(area.width);
     let height = (content_height + 2).min(area.height);
 
     if area.height < 5 || area.width < width {
@@ -484,11 +505,39 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
         .border_style(Style::new().fg(Color::White))
         .padding(Padding::horizontal(1));
 
+    // Merge columns into single lines with padding.
+    let row_count = left_lines.len().max(right_lines.len());
+    let mut left_iter = left_lines.into_iter();
+    let mut right_iter = right_lines.into_iter();
+    let mut merged: Vec<Line> = Vec::with_capacity(row_count);
+    for _ in 0..row_count {
+        let left = left_iter.next();
+        let right = right_iter.next();
+
+        let left_rendered_width: usize = left
+            .as_ref()
+            .map(|l| l.spans.iter().map(|s| s.content.len()).sum())
+            .unwrap_or(0);
+        let pad = left_width.saturating_sub(left_rendered_width) + 2;
+
+        let mut spans: Vec<Span> = Vec::new();
+        if let Some(l) = left {
+            spans.extend(l.spans);
+        }
+        spans.push(Span::raw(" ".repeat(pad)));
+        spans.push(Span::styled("│", dim));
+        spans.push(Span::raw("  "));
+        if let Some(r) = right {
+            spans.extend(r.spans);
+        }
+        merged.push(Line::from(spans));
+    }
+
     let viewport_height = height.saturating_sub(2);
     let max_scroll = content_height.saturating_sub(viewport_height);
     *scroll = (*scroll).min(max_scroll);
 
-    let paragraph = Paragraph::new(Text::from(lines))
+    let paragraph = Paragraph::new(Text::from(merged))
         .block(block)
         .scroll((*scroll, 0));
     frame.render_widget(paragraph, popup_area);

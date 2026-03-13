@@ -22,6 +22,8 @@ pub enum Command {
     DropTask,
     CopyId,
     PriorityMode,
+    MoveMode,
+    DepMode,
     ShowHelp,
     ScrollDown,
     ScrollUp,
@@ -32,6 +34,10 @@ pub enum Command {
     SetLow,
     Cancel,
     Confirm,
+    // Move sub-mode
+    Unparent,
+    // Dep sub-mode
+    ToggleDep,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -69,7 +75,8 @@ pub const GLOBAL: &[Hint] = &[
     },
 ];
 
-pub const TREE: &[Hint] = &[
+/// Tree navigation keys shared by tree, move, and dep modes.
+pub const NAV: &[Hint] = &[
     Hint {
         keys: &[
             (KeyCode::Char('j'), Command::NavigateDown),
@@ -118,6 +125,28 @@ pub const TREE: &[Hint] = &[
         description: "",
         footer: Footer::Hidden,
     },
+    Hint {
+        keys: &[
+            (KeyCode::Char('g'), Command::First),
+            (KeyCode::Home, Command::First),
+        ],
+        label: "g/G",
+        description: "top/bottom",
+        footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[
+            (KeyCode::Char('G'), Command::Last),
+            (KeyCode::End, Command::Last),
+        ],
+        label: "",
+        description: "",
+        footer: Footer::Hidden,
+    },
+];
+
+/// Tree-specific actions (not navigation).
+pub const TREE: &[Hint] = &[
     Hint {
         keys: &[(KeyCode::Char(' '), Command::Toggle)],
         label: "Space",
@@ -173,27 +202,21 @@ pub const TREE: &[Hint] = &[
         footer: Footer::Left,
     },
     Hint {
+        keys: &[(KeyCode::Char('m'), Command::MoveMode)],
+        label: "m",
+        description: "move",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Char('D'), Command::DepMode)],
+        label: "D",
+        description: "deps",
+        footer: Footer::Left,
+    },
+    Hint {
         keys: &[(KeyCode::Char('y'), Command::CopyId)],
         label: "y",
         description: "copy id",
-        footer: Footer::Hidden,
-    },
-    Hint {
-        keys: &[
-            (KeyCode::Char('g'), Command::First),
-            (KeyCode::Home, Command::First),
-        ],
-        label: "g/G",
-        description: "top/bottom",
-        footer: Footer::Hidden,
-    },
-    Hint {
-        keys: &[
-            (KeyCode::Char('G'), Command::Last),
-            (KeyCode::End, Command::Last),
-        ],
-        label: "",
-        description: "",
         footer: Footer::Hidden,
     },
 ];
@@ -234,6 +257,48 @@ pub const DETAIL: &[Hint] = &[
         label: "",
         description: "",
         footer: Footer::Hidden,
+    },
+];
+
+pub const MOVE: &[Hint] = &[
+    Hint {
+        keys: &[(KeyCode::Char('u'), Command::Unparent)],
+        label: "u",
+        description: "unparent",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Enter, Command::Confirm)],
+        label: "Enter",
+        description: "confirm",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Esc, Command::Cancel)],
+        label: "Esc",
+        description: "cancel",
+        footer: Footer::Left,
+    },
+];
+
+pub const DEP: &[Hint] = &[
+    Hint {
+        keys: &[(KeyCode::Char(' '), Command::ToggleDep)],
+        label: "Space",
+        description: "toggle",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Enter, Command::Confirm)],
+        label: "Enter",
+        description: "confirm",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Esc, Command::Cancel)],
+        label: "Esc",
+        description: "cancel",
+        footer: Footer::Left,
     },
 ];
 
