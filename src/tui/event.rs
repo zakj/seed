@@ -7,7 +7,7 @@ use tui_input::backend::crossterm::EventHandler;
 
 use std::collections::HashSet;
 
-use super::app::{self, App, DepState, EditState, MoveState, Panel};
+use super::app::{self, App, DepState, EditState, HelpOverlay, Mode, MoveState, Panel};
 use super::keys::{self, Command};
 use crate::error::Error;
 use crate::ops::{self, Edits};
@@ -36,7 +36,7 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
     // keyboard input.
     loop {
         let ev = event::read()?;
-        if app.edit_state.is_some() {
+        if matches!(app.mode, Mode::Edit(_)) {
             return Ok(handle_edit_event(app, &ev));
         }
         let action = match ev {
@@ -57,37 +57,26 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
 }
 
 fn handle_key(app: &mut App, code: KeyCode) -> Action {
-    // Clear status on any keypress.
     app.status_message = None;
-
-    if app.help_scroll.is_some() {
+    if app.help.is_some() {
         return handle_help_key(app, code);
     }
-
-    if app.priority_selection.is_some() {
-        return handle_priority_key(app, code);
+    match &app.mode {
+        Mode::Priority(_) => handle_priority_key(app, code),
+        Mode::Move(_) => handle_move_key(app, code),
+        Mode::Dep(_) => handle_dep_key(app, code),
+        Mode::Normal(_) => {
+            let Some(cmd) = keys::resolve(app.mode.key_tables(), code) else {
+                return Action::Continue;
+            };
+            execute(app, cmd)
+        }
+        Mode::Edit(_) => unreachable!(),
     }
-
-    if app.move_state.is_some() {
-        return handle_move_key(app, code);
-    }
-
-    if app.dep_state.is_some() {
-        return handle_dep_key(app, code);
-    }
-
-    let tables: &[&[keys::Hint]] = match app.focused_panel {
-        Panel::Tree => &[keys::GLOBAL, keys::NAV, keys::TREE],
-        Panel::Detail => &[keys::GLOBAL, keys::DETAIL],
-    };
-    let Some(cmd) = keys::resolve(tables, code) else {
-        return Action::Continue;
-    };
-    execute(app, cmd)
 }
 
 fn execute(app: &mut App, cmd: Command) -> Action {
-    if app.focused_panel == Panel::Tree
+    if app.panel() == Panel::Tree
         && let Some(action) = handle_tree_nav(app, cmd)
     {
         return action;
@@ -96,13 +85,14 @@ fn execute(app: &mut App, cmd: Command) -> Action {
     match cmd {
         Command::Quit => return Action::Quit,
         Command::ShowHelp => {
-            app.help_scroll = Some(0);
+            app.help = Some(HelpOverlay { scroll: 0 });
         }
         Command::TogglePanel => {
-            app.focused_panel = match app.focused_panel {
+            let new_panel = match app.panel() {
                 Panel::Tree => Panel::Detail,
                 Panel::Detail => Panel::Tree,
             };
+            app.mode = Mode::Normal(new_panel);
         }
 
         Command::Toggle => {
@@ -128,7 +118,7 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         // Editing
         Command::EditTitle => {
             if let Some(task) = app.selected_task() {
-                app.edit_state = Some(EditState {
+                app.mode = Mode::Edit(EditState {
                     task_id: task.id,
                     input: Input::new(task.title.clone()),
                     error: None,
@@ -181,14 +171,14 @@ fn execute(app: &mut App, cmd: Command) -> Action {
                     .iter()
                     .position(|&p| p == task.priority)
                     .unwrap_or(super::ui::DEFAULT_PRIORITY_INDEX);
-                app.priority_selection = Some(idx);
+                app.mode = Mode::Priority(idx);
             }
         }
 
         Command::MoveMode => {
             if let Some(task) = app.selected_task() {
                 let invalid = app::descendants(task.id, &app.children_map, &app.tasks);
-                app.move_state = Some(MoveState {
+                app.mode = Mode::Move(MoveState {
                     task_id: task.id,
                     original_parent: task.parent,
                     invalid_targets: invalid,
@@ -199,7 +189,7 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         Command::DepMode => {
             if let Some(task) = app.selected_task() {
                 let original_deps = task.depends.iter().copied().collect();
-                app.dep_state = Some(DepState {
+                app.mode = Mode::Dep(DepState {
                     task_id: task.id,
                     original_deps,
                     added: HashSet::new(),
@@ -265,20 +255,26 @@ fn mutate_task(
 }
 
 fn handle_help_key(app: &mut App, code: KeyCode) -> Action {
-    let scroll = app.help_scroll.as_mut().unwrap();
+    let Some(ref mut help) = app.help else {
+        unreachable!()
+    };
     match code {
-        KeyCode::Char('?') | KeyCode::Esc => app.help_scroll = None,
+        KeyCode::Char('?') | KeyCode::Esc => app.help = None,
         KeyCode::Char('q') => return Action::Quit,
-        KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
-        KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
+        KeyCode::Char('j') | KeyCode::Down => help.scroll = help.scroll.saturating_add(1),
+        KeyCode::Char('k') | KeyCode::Up => help.scroll = help.scroll.saturating_sub(1),
         _ => {}
     }
     Action::Continue
 }
 
 fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
-    let Some(cmd) = keys::resolve(&[keys::PRIORITY], code) else {
+    let Some(cmd) = keys::resolve(app.mode.key_tables(), code) else {
         return Action::Continue;
+    };
+
+    let Mode::Priority(ref mut selection) = app.mode else {
+        unreachable!()
     };
 
     let priority = match cmd {
@@ -287,26 +283,23 @@ fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
         Command::SetNormal => Some(Priority::Normal),
         Command::SetLow => Some(Priority::Low),
         Command::NavigateDown => {
-            if let Some(idx) = app.priority_selection.as_mut() {
-                *idx = (*idx + 1) % super::ui::PRIORITIES.len();
-            }
+            *selection = (*selection + 1) % super::ui::PRIORITIES.len();
             return Action::Continue;
         }
         Command::NavigateUp => {
-            if let Some(idx) = app.priority_selection.as_mut() {
-                *idx = (*idx + super::ui::PRIORITIES.len() - 1) % super::ui::PRIORITIES.len();
-            }
+            *selection =
+                (*selection + super::ui::PRIORITIES.len() - 1) % super::ui::PRIORITIES.len();
             return Action::Continue;
         }
-        Command::Confirm => app.priority_selection.map(|idx| super::ui::PRIORITIES[idx]),
+        Command::Confirm => Some(super::ui::PRIORITIES[*selection]),
         Command::Cancel => {
-            app.priority_selection = None;
+            app.mode = Mode::Normal(Panel::Tree);
             return Action::Continue;
         }
         _ => return Action::Continue,
     };
 
-    app.priority_selection = None;
+    app.mode = Mode::Normal(Panel::Tree);
 
     if let Some(priority) = priority
         && let Some(task) = app.selected_task()
@@ -334,7 +327,7 @@ fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
     match cmd {
         Command::Quit => Some(Action::Quit),
         Command::ShowHelp => {
-            app.help_scroll = Some(0);
+            app.help = Some(HelpOverlay { scroll: 0 });
             Some(Action::Continue)
         }
         Command::NavigateDown => {
@@ -382,7 +375,7 @@ fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
 }
 
 fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
-    let Some(cmd) = keys::resolve(&[keys::GLOBAL, keys::NAV, keys::MOVE], code) else {
+    let Some(cmd) = keys::resolve(app.mode.key_tables(), code) else {
         return Action::Continue;
     };
 
@@ -390,15 +383,18 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
         return action;
     }
 
+    let Mode::Move(ref ms) = app.mode else {
+        unreachable!()
+    };
+
     match cmd {
         Command::Unparent => {
-            let ms = app.move_state.as_ref().unwrap();
             if ms.original_parent.is_none() {
                 app.set_status("Already a root task");
                 return Action::Continue;
             }
             let task_id = ms.task_id;
-            app.move_state = None;
+            app.mode = Mode::Normal(Panel::Tree);
             let edits = Edits {
                 parent: Some(None),
                 ..Edits::default()
@@ -416,7 +412,6 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
             }
         }
         Command::Confirm => {
-            let ms = app.move_state.as_ref().unwrap();
             let task_id = ms.task_id;
             let new_parent = app.selected_task().map(|t| t.id);
 
@@ -430,7 +425,7 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
 
             // Check if actually changed.
             if new_parent == ms.original_parent {
-                app.move_state = None;
+                app.mode = Mode::Normal(Panel::Tree);
                 select_task(app, task_id);
                 return Action::Continue;
             }
@@ -444,7 +439,7 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
                 }
             }
 
-            app.move_state = None;
+            app.mode = Mode::Normal(Panel::Tree);
             let edits = Edits {
                 parent: Some(new_parent),
                 ..Edits::default()
@@ -466,8 +461,8 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
             }
         }
         Command::Cancel => {
-            let task_id = app.move_state.as_ref().unwrap().task_id;
-            app.move_state = None;
+            let task_id = ms.task_id;
+            app.mode = Mode::Normal(Panel::Tree);
             select_task(app, task_id);
         }
         _ => {}
@@ -476,7 +471,7 @@ fn handle_move_key(app: &mut App, code: KeyCode) -> Action {
 }
 
 fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
-    let Some(cmd) = keys::resolve(&[keys::GLOBAL, keys::NAV, keys::DEP], code) else {
+    let Some(cmd) = keys::resolve(app.mode.key_tables(), code) else {
         return Action::Continue;
     };
 
@@ -490,7 +485,9 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
                 return Action::Continue;
             };
             let selected_id = selected.id;
-            let ds = app.dep_state.as_mut().unwrap();
+            let Mode::Dep(ref mut ds) = app.mode else {
+                unreachable!()
+            };
 
             if selected_id == ds.task_id {
                 app.set_status("Cannot depend on self");
@@ -510,7 +507,6 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
                 // Toggle on — validate DAG first.
                 let subject = app.tasks.iter().find(|t| t.id == ds.task_id).unwrap();
                 let mut test_task = subject.clone();
-                // Apply pending edits to get effective dep set.
                 for &id in &ds.added {
                     test_task.depends.insert(id);
                 }
@@ -530,7 +526,9 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
             }
         }
         Command::Confirm => {
-            let ds = app.dep_state.take().unwrap();
+            let Mode::Dep(ds) = app.mode.take() else {
+                unreachable!()
+            };
             if !ds.added.is_empty() || !ds.removed.is_empty() {
                 let edits = Edits {
                     add_deps: ds.added.into_iter().collect(),
@@ -548,7 +546,9 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
             select_task(app, ds.task_id);
         }
         Command::Cancel => {
-            let ds = app.dep_state.take().unwrap();
+            let Mode::Dep(ds) = app.mode.take() else {
+                unreachable!()
+            };
             select_task(app, ds.task_id);
         }
         _ => {}
@@ -557,15 +557,13 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
 }
 
 fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
-    let Some(mut edit) = app.edit_state.take() else {
-        return Action::Continue;
+    let Mode::Edit(ref mut edit) = app.mode else {
+        unreachable!()
     };
     let Event::Key(key) = ev else {
-        app.edit_state = Some(edit);
         return Action::Continue;
     };
     if key.kind != KeyEventKind::Press {
-        app.edit_state = Some(edit);
         return Action::Continue;
     }
     match key.code {
@@ -573,30 +571,37 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
             let title = edit.input.value().trim().to_string();
             if title.is_empty() {
                 if edit.is_new {
+                    let Mode::Edit(edit) = app.mode.take() else {
+                        unreachable!()
+                    };
                     let _ = app.store.delete_task(edit.task_id);
                     let _ = app.reload();
                     return Action::Continue;
                 }
                 edit.error = Some("Title cannot be empty".into());
-                app.edit_state = Some(edit);
                 return Action::Continue;
             }
+            let Mode::Edit(edit) = app.mode.take() else {
+                unreachable!()
+            };
             let edits = Edits {
                 title: Some(title),
                 ..Edits::default()
             };
-            if let Err(e) = ops::apply_edits(&app.store, edit.task_id, &edits) {
-                edit.error = Some(e.to_string());
-                app.edit_state = Some(edit);
-                return Action::Continue;
-            }
-            if let Err(e) = app.reload() {
-                edit.error = Some(e.to_string());
-                app.edit_state = Some(edit);
+            if let Err(e) =
+                ops::apply_edits(&app.store, edit.task_id, &edits).and_then(|_| app.reload())
+            {
+                app.mode = Mode::Edit(EditState {
+                    error: Some(e.to_string()),
+                    ..edit
+                });
                 return Action::Continue;
             }
         }
         KeyCode::Esc => {
+            let Mode::Edit(edit) = app.mode.take() else {
+                unreachable!()
+            };
             if edit.is_new {
                 let _ = app.store.delete_task(edit.task_id);
                 let _ = app.reload();
@@ -605,7 +610,6 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
         _ => {
             edit.error = None;
             edit.input.handle_event(ev);
-            app.edit_state = Some(edit);
         }
     }
     Action::Continue
@@ -628,7 +632,7 @@ fn create_and_edit_task(app: &mut App, parent: Option<TaskId>) {
                 app.tree_state.open(path);
             }
             select_task(app, new_id);
-            app.edit_state = Some(EditState {
+            app.mode = Mode::Edit(EditState {
                 task_id: new_id,
                 input: Input::new(String::new()),
                 error: None,

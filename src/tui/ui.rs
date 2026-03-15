@@ -9,7 +9,7 @@ use ratatui::widgets::{
 use tui_tree_widget::Tree;
 use unicode_width::UnicodeWidthStr;
 
-use super::app::{self, App, Panel};
+use super::app::{self, App, Mode, Panel};
 use super::keys;
 use super::markdown;
 use crate::format::{format_date, format_datetime};
@@ -42,13 +42,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_detail(frame, app, detail_area);
     draw_footer(frame, app, footer_area);
 
-    if app.edit_state.is_some() {
-        draw_edit_popup(frame, app);
+    match &app.mode {
+        Mode::Edit(_) => draw_edit_popup(frame, app),
+        Mode::Priority(_) => draw_priority_popup(frame, app),
+        _ => {}
     }
-    if app.priority_selection.is_some() {
-        draw_priority_popup(frame, app);
-    }
-    if app.help_scroll.is_some() {
+    if app.help.is_some() {
         draw_help_overlay(frame, app);
     }
 }
@@ -62,10 +61,10 @@ fn focused_border_style(panel: Panel, focused: Panel) -> Style {
 }
 
 fn build_overlay(app: &App) -> Option<app::TreeOverlay<'_>> {
-    if let Some(ms) = &app.move_state {
-        Some(app::TreeOverlay::Move(ms))
-    } else {
-        app.dep_state.as_ref().map(app::TreeOverlay::Dep)
+    match &app.mode {
+        Mode::Move(ms) => Some(app::TreeOverlay::Move(ms)),
+        Mode::Dep(ds) => Some(app::TreeOverlay::Dep(ds)),
+        _ => None,
     }
 }
 
@@ -80,12 +79,10 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         overlay.as_ref(),
     );
 
-    let title: std::borrow::Cow<str> = if let Some(ms) = &app.move_state {
-        format!(" Move #{} ", ms.task_id).into()
-    } else if let Some(ds) = &app.dep_state {
-        format!(" Deps #{} ", ds.task_id).into()
-    } else {
-        " Tasks ".into()
+    let title: std::borrow::Cow<str> = match &app.mode {
+        Mode::Move(ms) => format!(" Move #{} ", ms.task_id).into(),
+        Mode::Dep(ds) => format!(" Deps #{} ", ds.task_id).into(),
+        _ => " Tasks ".into(),
     };
 
     let tree = Tree::new(&items)
@@ -95,7 +92,7 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
                 .title(title)
                 .borders(Borders::ALL)
                 .border_set(border::ROUNDED)
-                .border_style(focused_border_style(Panel::Tree, app.focused_panel)),
+                .border_style(focused_border_style(Panel::Tree, app.panel())),
         )
         .highlight_style(
             Style::new()
@@ -114,7 +111,7 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     let date_title = selected.map(|task| {
         Line::from(Span::styled(
             format!(" {} ", format_date(&task.modified)),
-            focused_border_style(Panel::Detail, app.focused_panel),
+            focused_border_style(Panel::Detail, app.panel()),
         ))
         .right_aligned()
     });
@@ -122,7 +119,7 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(focused_border_style(Panel::Detail, app.focused_panel))
+        .border_style(focused_border_style(Panel::Detail, app.panel()))
         .padding(Padding::right(1));
     if let Some(title) = date_title {
         block = block.title(title);
@@ -260,7 +257,9 @@ fn render_border_scrollbar(frame: &mut Frame, area: Rect, max_scroll: u16, posit
 }
 
 fn draw_edit_popup(frame: &mut Frame, app: &App) {
-    let edit = app.edit_state.as_ref().unwrap();
+    let Mode::Edit(ref edit) = app.mode else {
+        unreachable!()
+    };
     let area = frame.area();
     if area.height < 5 || area.width < 10 {
         return;
@@ -300,7 +299,9 @@ fn draw_edit_popup(frame: &mut Frame, app: &App) {
 }
 
 fn draw_priority_popup(frame: &mut Frame, app: &App) {
-    let selected = app.priority_selection.unwrap();
+    let Mode::Priority(selected) = app.mode else {
+        unreachable!()
+    };
     let area = frame.area();
     if area.height < 8 || area.width < 22 {
         return;
@@ -352,17 +353,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let tables: &[&[keys::Hint]] = if app.move_state.is_some() {
-        &[keys::NAV, keys::MOVE, keys::GLOBAL]
-    } else if app.dep_state.is_some() {
-        &[keys::NAV, keys::DEP, keys::GLOBAL]
-    } else {
-        match app.focused_panel {
-            Panel::Tree => &[keys::NAV, keys::TREE, keys::GLOBAL],
-            Panel::Detail => &[keys::DETAIL, keys::GLOBAL],
-        }
-    };
-    render_hints(frame, area, tables);
+    render_hints(frame, area, app.mode.key_tables());
 }
 
 fn hint_spans(hint: &keys::Hint) -> Vec<Span<'static>> {
@@ -444,7 +435,10 @@ fn build_help_column(
 
 fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
-    let scroll = app.help_scroll.as_mut().unwrap();
+    let Some(ref mut help) = app.help else {
+        unreachable!()
+    };
+    let scroll = &mut help.scroll;
 
     let left_sections: &[(&str, &[keys::Hint])] = &[
         ("Navigation", keys::NAV),

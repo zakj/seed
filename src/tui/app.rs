@@ -9,6 +9,8 @@ use crate::ops;
 use crate::store::Store;
 use crate::task::{Task, TaskId};
 
+use super::keys;
+
 pub struct EditState {
     pub task_id: TaskId,
     pub input: Input,
@@ -42,6 +44,36 @@ pub enum Panel {
     Detail,
 }
 
+pub struct HelpOverlay {
+    pub scroll: u16,
+}
+
+pub enum Mode {
+    Normal(Panel),
+    Edit(EditState),
+    Move(MoveState),
+    Dep(DepState),
+    Priority(usize),
+}
+
+impl Mode {
+    /// Take ownership of the current mode, replacing it with Normal(Tree).
+    pub fn take(&mut self) -> Mode {
+        std::mem::replace(self, Mode::Normal(Panel::Tree))
+    }
+
+    pub fn key_tables(&self) -> &'static [&'static [keys::Hint]] {
+        match self {
+            Mode::Normal(Panel::Tree) => &[keys::GLOBAL, keys::NAV, keys::TREE],
+            Mode::Normal(Panel::Detail) => &[keys::GLOBAL, keys::DETAIL],
+            Mode::Move(_) => &[keys::GLOBAL, keys::NAV, keys::MOVE],
+            Mode::Dep(_) => &[keys::GLOBAL, keys::NAV, keys::DEP],
+            Mode::Priority(_) => &[keys::PRIORITY],
+            Mode::Edit(_) => &[],
+        }
+    }
+}
+
 pub struct App {
     pub store: Store,
     pub include_archived: bool,
@@ -50,7 +82,8 @@ pub struct App {
     pub tree_state: TreeState<TaskId>,
     pub children_map: ChildrenMap,
     pub parent_map: HashMap<TaskId, TaskId>,
-    pub focused_panel: Panel,
+    pub mode: Mode,
+    pub help: Option<HelpOverlay>,
     pub detail_scroll: u16,
     pub detail_hscroll: u16,
     /// Pane areas from the last draw, used for mouse hit-testing.
@@ -58,12 +91,7 @@ pub struct App {
     pub detail_area: ratatui::layout::Rect,
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
-    pub edit_state: Option<EditState>,
-    pub move_state: Option<MoveState>,
-    pub dep_state: Option<DepState>,
     pub status_message: Option<(String, Instant)>,
-    pub priority_selection: Option<usize>,
-    pub help_scroll: Option<u16>,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
 }
@@ -86,24 +114,27 @@ impl App {
             tree_state: TreeState::default(),
             children_map,
             parent_map,
-            focused_panel: Panel::Tree,
+            mode: Mode::Normal(Panel::Tree),
+            help: None,
             detail_scroll: 0,
             detail_hscroll: 0,
             tree_area: ratatui::layout::Rect::default(),
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
-            edit_state: None,
-            move_state: None,
-            dep_state: None,
             status_message: None,
-            priority_selection: None,
-            help_scroll: None,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
         };
         app.dir_mtime = app.current_mtime();
         app.open_all_parents();
         Ok(app)
+    }
+
+    pub fn panel(&self) -> Panel {
+        match &self.mode {
+            Mode::Normal(panel) => *panel,
+            _ => Panel::Tree,
+        }
     }
 
     pub fn reload(&mut self) -> Result<(), Error> {
