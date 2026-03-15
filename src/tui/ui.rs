@@ -5,7 +5,6 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Block, Borders, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    Wrap,
 };
 use tui_tree_widget::Tree;
 use unicode_width::UnicodeWidthStr;
@@ -143,14 +142,13 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     };
 
-    let content_height = wrapped_line_count(&content, inner.width) as u16;
+    let content_height = content.lines.len() as u16;
     let viewport_height = inner.height;
     let max_scroll = content_height.saturating_sub(viewport_height);
     app.detail_scroll = app.detail_scroll.min(max_scroll);
 
     let paragraph = Paragraph::new(content)
         .block(block)
-        .wrap(Wrap { trim: false })
         .scroll((app.detail_scroll, 0));
     frame.render_widget(paragraph, area);
 
@@ -234,26 +232,6 @@ fn format_related_spans(
         Span::styled(format!("{} ", indicator.symbol), style),
         Span::raw(format!("#{} {}", task.id, task.title)),
     ]
-}
-
-/// Approximate visual line count after wrapping. Uses character-width ceiling
-/// division, which can undercount vs ratatui's word-boundary wrapping.
-fn wrapped_line_count(text: &Text, width: u16) -> usize {
-    let w = width as usize;
-    if w == 0 {
-        return text.lines.len();
-    }
-    text.lines
-        .iter()
-        .map(|line| {
-            let line_width = line.width();
-            if line_width == 0 {
-                1
-            } else {
-                line_width.div_ceil(w)
-            }
-        })
-        .sum()
 }
 
 /// Render a scrollbar on the right border of `area`, between the corners.
