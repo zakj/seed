@@ -184,6 +184,15 @@ impl Store {
         Self::load_tasks_from(&self.tasks_dir())
     }
 
+    pub fn load_tasks(&self, include_archived: bool) -> Result<Vec<Task>, Error> {
+        let mut tasks = self.load_all_tasks()?;
+        if include_archived {
+            tasks.extend(self.load_archived_tasks()?);
+            tasks.sort_by_key(|t| t.id);
+        }
+        Ok(tasks)
+    }
+
     pub fn load_archived_tasks(&self) -> Result<Vec<Task>, Error> {
         Self::load_tasks_from(&self.archive_dir())
     }
