@@ -31,17 +31,28 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
     if !event::poll(Duration::from_millis(16))? {
         return Ok(Action::Continue);
     }
-    let ev = event::read()?;
-    if app.edit_state.is_some() {
-        return Ok(handle_edit_event(app, &ev));
-    }
-    match ev {
-        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(handle_key(app, key.code)),
-        Event::Mouse(mouse) => {
-            handle_mouse(app, mouse);
-            Ok(Action::Continue)
+
+    // Drain all pending events to prevent scroll wheel events from starving
+    // keyboard input.
+    loop {
+        let ev = event::read()?;
+        if app.edit_state.is_some() {
+            return Ok(handle_edit_event(app, &ev));
         }
-        _ => Ok(Action::Continue),
+        let action = match ev {
+            Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(app, key.code),
+            Event::Mouse(mouse) => {
+                handle_mouse(app, mouse);
+                Action::Continue
+            }
+            _ => Action::Continue,
+        };
+        if !matches!(action, Action::Continue) {
+            return Ok(action);
+        }
+        if !event::poll(Duration::ZERO)? {
+            return Ok(Action::Continue);
+        }
     }
 }
 
