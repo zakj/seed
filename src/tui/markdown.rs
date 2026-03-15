@@ -441,3 +441,291 @@ fn render_table(
 
     lines.push(border_line("╰", "┴", "╯"));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Extract the plain text from a rendered Text, joining lines with newlines.
+    fn plain(text: &Text) -> String {
+        text.lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn line_width(line: &Line) -> usize {
+        spans_width(&line.spans)
+    }
+
+    // -- Code blocks --
+
+    #[test]
+    fn code_block_lines_have_uniform_width() {
+        let md = "```\nshort\na longer line of code\n```";
+        let text = render(md, 80);
+        let code_lines: Vec<_> = text
+            .lines
+            .iter()
+            .filter(|l| l.spans.iter().any(|s| s.style.bg == Some(CODE_BG)))
+            .collect();
+        assert!(code_lines.len() >= 2);
+        let widths: Vec<usize> = code_lines.iter().map(|l| line_width(l)).collect();
+        assert!(
+            widths.iter().all(|&w| w == widths[0]),
+            "code block lines should have uniform width, got {widths:?}"
+        );
+    }
+
+    #[test]
+    fn code_block_wide_lines_not_capped() {
+        // Wide code lines extend past render width (clipped by ratatui at render time)
+        let long_line = "x".repeat(200);
+        let md = format!("```\n{long_line}\nshort\n```");
+        let text = render(&md, 60);
+        let code_lines: Vec<_> = text
+            .lines
+            .iter()
+            .filter(|l| l.spans.iter().any(|s| s.style.bg == Some(CODE_BG)))
+            .collect();
+        // Short line is padded to match the long line
+        let widths: Vec<usize> = code_lines.iter().map(|l| line_width(l)).collect();
+        assert!(widths[0] > 60, "long line should exceed render width");
+        assert!(
+            widths.iter().all(|&w| w == widths[0]),
+            "code block lines should have uniform width, got {widths:?}"
+        );
+    }
+
+    #[test]
+    fn code_block_has_background_style() {
+        let md = "```\nlet x = 1;\n```";
+        let text = render(md, 80);
+        let has_code_bg = text
+            .lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.style.bg == Some(CODE_BG)));
+        assert!(has_code_bg, "code block should have background color");
+    }
+
+    #[test]
+    fn code_block_followed_by_blank_line() {
+        let md = "```\ncode\n```\n\nAfter.";
+        let text = render(md, 80);
+        let p = plain(&text);
+        // There should be a blank line between code and "After."
+        assert!(p.contains("\n\n"), "expected blank line after code block");
+    }
+
+    // -- Paragraphs --
+
+    #[test]
+    fn paragraph_wraps_at_width() {
+        let md = "This is a fairly long paragraph that should be wrapped at the specified width for readability.";
+        let text = render(md, 40);
+        assert!(text.lines.len() > 1, "paragraph should wrap");
+        for line in &text.lines {
+            assert!(
+                line_width(line) <= 40,
+                "line width {} exceeds 40",
+                line_width(line)
+            );
+        }
+    }
+
+    #[test]
+    fn hard_break_forces_new_line() {
+        // Two trailing spaces = hard break in CommonMark
+        let md = "line one  \nline two";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(
+            p.contains("line one") && p.contains("line two"),
+            "both lines should appear"
+        );
+        // Should be on separate lines (not joined by a space)
+        let content_lines: Vec<_> = text.lines.iter().filter(|l| !l.spans.is_empty()).collect();
+        assert!(
+            content_lines.len() >= 2,
+            "hard break should produce two lines"
+        );
+    }
+
+    // -- Headings --
+
+    #[test]
+    fn heading_has_bold_style() {
+        let md = "# Title";
+        let text = render(md, 80);
+        let bold_title =
+            text.lines.iter().flat_map(|l| &l.spans).any(|s| {
+                s.content.contains("Title") && s.style.add_modifier.contains(Modifier::BOLD)
+            });
+        assert!(bold_title, "heading title should have BOLD modifier");
+    }
+
+    #[test]
+    fn heading_levels_have_correct_prefix() {
+        for level in 1..=3 {
+            let md = format!("{} Heading", "#".repeat(level));
+            let text = render(&md, 80);
+            let p = plain(&text);
+            let prefix = format!("{} ", "#".repeat(level));
+            assert!(
+                p.contains(&prefix),
+                "level {level} heading should have prefix {prefix:?}, got {p:?}"
+            );
+        }
+    }
+
+    // -- Inline styles --
+
+    #[test]
+    fn bold_text_has_bold_modifier() {
+        let md = "Some **bold** text.";
+        let text = render(md, 80);
+        let bold_span =
+            text.lines.iter().flat_map(|l| &l.spans).find(|s| {
+                s.content.contains("bold") && s.style.add_modifier.contains(Modifier::BOLD)
+            });
+        assert!(bold_span.is_some(), "bold text should have BOLD modifier");
+    }
+
+    #[test]
+    fn italic_text_has_italic_modifier() {
+        let md = "Some *italic* text.";
+        let text = render(md, 80);
+        let italic_span = text.lines.iter().flat_map(|l| &l.spans).find(|s| {
+            s.content.contains("italic") && s.style.add_modifier.contains(Modifier::ITALIC)
+        });
+        assert!(
+            italic_span.is_some(),
+            "italic text should have ITALIC modifier"
+        );
+    }
+
+    #[test]
+    fn inline_code_has_background() {
+        let md = "Use `foo` here.";
+        let text = render(md, 80);
+        let code_span = text
+            .lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.contains("foo") && s.style.bg == Some(CODE_BG));
+        assert!(
+            code_span.is_some(),
+            "inline code should have background color"
+        );
+    }
+
+    #[test]
+    fn link_has_color() {
+        let md = "A [link](https://example.com) here.";
+        let text = render(md, 80);
+        let link_span = text
+            .lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.contains("link") && s.style.fg.is_some());
+        assert!(link_span.is_some(), "link should have foreground color");
+    }
+
+    // -- Lists --
+
+    #[test]
+    fn unordered_list_items() {
+        let md = "- one\n- two\n- three";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("- one"));
+        assert!(p.contains("- two"));
+        assert!(p.contains("- three"));
+    }
+
+    #[test]
+    fn ordered_list_items() {
+        let md = "1. first\n2. second\n3. third";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("1. first"));
+        assert!(p.contains("2. second"));
+        assert!(p.contains("3. third"));
+    }
+
+    #[test]
+    fn nested_list() {
+        let md = "- outer\n  - inner";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("- outer"));
+        assert!(p.contains("    - inner"), "inner item should be indented");
+    }
+
+    // -- Blockquotes --
+
+    #[test]
+    fn blockquote_has_bar() {
+        let md = "> quoted text";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("▎"), "blockquote should have bar character");
+        assert!(p.contains("quoted text"));
+    }
+
+    // -- Tables --
+
+    #[test]
+    fn table_has_borders() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("╭") && p.contains("╮"), "should have top border");
+        assert!(
+            p.contains("╰") && p.contains("╯"),
+            "should have bottom border"
+        );
+        assert!(p.contains("│"), "should have vertical borders");
+    }
+
+    #[test]
+    fn table_header_is_bold() {
+        let md = "| Name |\n|------|\n| val  |";
+        let text = render(md, 80);
+        let bold_name =
+            text.lines.iter().flat_map(|l| &l.spans).find(|s| {
+                s.content.contains("Name") && s.style.add_modifier.contains(Modifier::BOLD)
+            });
+        assert!(bold_name.is_some(), "table header should be bold");
+    }
+
+    // -- Horizontal rule --
+
+    #[test]
+    fn horizontal_rule_renders() {
+        let md = "Above\n\n---\n\nBelow";
+        let text = render(md, 80);
+        let p = plain(&text);
+        assert!(p.contains("▁"), "should contain rule character");
+        assert!(p.contains("Above") && p.contains("Below"));
+    }
+
+    // -- Trailing whitespace --
+
+    #[test]
+    fn trailing_empty_lines_trimmed() {
+        let md = "Hello.\n\n";
+        let text = render(md, 80);
+        let last = text.lines.last().unwrap();
+        assert!(
+            !last.spans.is_empty(),
+            "trailing empty lines should be trimmed"
+        );
+    }
+}
