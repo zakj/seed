@@ -143,13 +143,16 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let content_height = content.lines.len() as u16;
+    let content_width = content.width() as u16;
     let viewport_height = inner.height;
     let max_scroll = content_height.saturating_sub(viewport_height);
+    let max_hscroll = content_width.saturating_sub(inner.width);
     app.detail_scroll = app.detail_scroll.min(max_scroll);
+    app.detail_hscroll = app.detail_hscroll.min(max_hscroll);
 
     let paragraph = Paragraph::new(content)
         .block(block)
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll, app.detail_hscroll));
     frame.render_widget(paragraph, area);
 
     render_border_scrollbar(frame, area, max_scroll, app.detail_scroll);

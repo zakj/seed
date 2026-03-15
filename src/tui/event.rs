@@ -118,6 +118,12 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         Command::ScrollUp => {
             app.detail_scroll = app.detail_scroll.saturating_sub(1);
         }
+        Command::ScrollRight => {
+            app.detail_hscroll = app.detail_hscroll.saturating_add(2);
+        }
+        Command::ScrollLeft => {
+            app.detail_hscroll = app.detail_hscroll.saturating_sub(2);
+        }
 
         // Editing
         Command::EditTitle => {
@@ -212,6 +218,7 @@ fn navigate(app: &mut App, f: impl FnOnce(&mut tui_tree_widget::TreeState<TaskId
     f(&mut app.tree_state);
     if app.tree_state.selected() != prev {
         app.detail_scroll = 0;
+        app.detail_hscroll = 0;
     }
 }
 
@@ -361,11 +368,13 @@ fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
         Command::First => {
             app.tree_state.select_first();
             app.detail_scroll = 0;
+            app.detail_hscroll = 0;
             Some(Action::Continue)
         }
         Command::Last => {
             app.tree_state.select_last();
             app.detail_scroll = 0;
+            app.detail_hscroll = 0;
             Some(Action::Continue)
         }
         _ => None,
@@ -633,6 +642,7 @@ fn select_task(app: &mut App, id: TaskId) {
     let path = app::identifier_path(id, &app.parent_map);
     app.tree_state.select(path);
     app.detail_scroll = 0;
+    app.detail_hscroll = 0;
 }
 
 fn hit_panel(app: &App, col: u16, row: u16) -> Option<Panel> {
@@ -675,6 +685,7 @@ fn handle_mouse(app: &mut App, mouse: event::MouseEvent) {
                 .click_at(Position::new(mouse.column, mouse.row));
             if app.tree_state.selected() != prev_selected {
                 app.detail_scroll = 0;
+                app.detail_hscroll = 0;
             }
         }
         MouseEventKind::ScrollDown => match hit_panel(app, mouse.column, mouse.row) {
@@ -699,6 +710,16 @@ fn handle_mouse(app: &mut App, mouse: event::MouseEvent) {
             }
             None => {}
         },
+        MouseEventKind::ScrollRight => {
+            if let Some(Panel::Detail) = hit_panel(app, mouse.column, mouse.row) {
+                app.detail_hscroll = app.detail_hscroll.saturating_add(1);
+            }
+        }
+        MouseEventKind::ScrollLeft => {
+            if let Some(Panel::Detail) = hit_panel(app, mouse.column, mouse.row) {
+                app.detail_hscroll = app.detail_hscroll.saturating_sub(1);
+            }
+        }
         _ => {}
     }
 }

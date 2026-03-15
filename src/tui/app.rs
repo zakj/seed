@@ -52,6 +52,7 @@ pub struct App {
     pub parent_map: HashMap<TaskId, TaskId>,
     pub focused_panel: Panel,
     pub detail_scroll: u16,
+    pub detail_hscroll: u16,
     /// Pane areas from the last draw, used for mouse hit-testing.
     pub tree_area: ratatui::layout::Rect,
     pub detail_area: ratatui::layout::Rect,
@@ -87,6 +88,7 @@ impl App {
             parent_map,
             focused_panel: Panel::Tree,
             detail_scroll: 0,
+            detail_hscroll: 0,
             tree_area: ratatui::layout::Rect::default(),
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),

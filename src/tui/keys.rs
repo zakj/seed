@@ -27,6 +27,8 @@ pub enum Command {
     ShowHelp,
     ScrollDown,
     ScrollUp,
+    ScrollLeft,
+    ScrollRight,
     // Priority sub-mode
     SetCritical,
     SetHigh,
@@ -235,6 +237,24 @@ pub const DETAIL: &[Hint] = &[
         keys: &[
             (KeyCode::Char('k'), Command::ScrollUp),
             (KeyCode::Up, Command::ScrollUp),
+        ],
+        label: "",
+        description: "",
+        footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[
+            (KeyCode::Char('h'), Command::ScrollLeft),
+            (KeyCode::Left, Command::ScrollLeft),
+        ],
+        label: "h/l",
+        description: "pan",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[
+            (KeyCode::Char('l'), Command::ScrollRight),
+            (KeyCode::Right, Command::ScrollRight),
         ],
         label: "",
         description: "",
