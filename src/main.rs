@@ -146,7 +146,11 @@ whose children are all complete. Sorted by priority."
     /// Interactive terminal UI
     #[cfg(feature = "tui")]
     #[command(alias = "t")]
-    Tui,
+    Tui {
+        /// Include archived tasks
+        #[arg(short = 'a', long)]
+        include_archived: bool,
+    },
 }
 
 #[derive(clap::Args)]
@@ -306,9 +310,9 @@ fn run(cli: &Cli) -> Result<(), Error> {
             Ok(())
         }
         #[cfg(feature = "tui")]
-        Command::Tui => {
+        Command::Tui { include_archived } => {
             let store = find_store()?;
-            tui::run(store)
+            tui::run(store, *include_archived)
         }
     }
 }
@@ -390,11 +394,7 @@ fn cmd_list(
     include_archived: bool,
 ) -> Result<(), Error> {
     let store = find_store()?;
-    let mut tasks = store.load_all_tasks()?;
-    if include_archived {
-        tasks.extend(store.load_archived_tasks()?);
-        tasks.sort_by_key(|t| t.id);
-    }
+    let tasks = store.load_tasks(include_archived)?;
     let done_ids = ops::resolved_ids(&store, &tasks)?;
 
     let filtered;

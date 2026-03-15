@@ -18,7 +18,7 @@ use crate::ops::{self, Edits};
 use crate::store::Store;
 use crate::task::TaskId;
 
-pub fn run(store: Store) -> Result<(), Error> {
+pub fn run(store: Store, include_archived: bool) -> Result<(), Error> {
     enable_raw_mode()?;
     execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
 
@@ -31,7 +31,7 @@ pub fn run(store: Store) -> Result<(), Error> {
     let backend = ratatui::backend::CrosstermBackend::new(io::stderr());
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let app = app::App::new(store)?;
+    let app = app::App::new(store, include_archived)?;
     let result = run_loop(&mut terminal, app);
 
     restore_terminal()?;

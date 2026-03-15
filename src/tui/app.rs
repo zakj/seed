@@ -44,6 +44,7 @@ pub enum Panel {
 
 pub struct App {
     pub store: Store,
+    pub include_archived: bool,
     pub tasks: Vec<Task>,
     pub done_ids: HashSet<TaskId>,
     pub tree_state: TreeState<TaskId>,
@@ -70,14 +71,15 @@ pub struct App {
 pub type ChildrenMap = HashMap<Option<TaskId>, Vec<usize>>;
 
 impl App {
-    pub fn new(store: Store) -> Result<Self, Error> {
-        let tasks = store.load_all_tasks()?;
+    pub fn new(store: Store, include_archived: bool) -> Result<Self, Error> {
+        let tasks = store.load_tasks(include_archived)?;
         let done_ids = ops::resolved_ids(&store, &tasks)?;
         let task_ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
         let children_map = build_children_map(&tasks, &done_ids, &task_ids);
         let parent_map = build_parent_map(&tasks, &task_ids);
         let mut app = Self {
             store,
+            include_archived,
             tasks,
             done_ids,
             tree_state: TreeState::default(),
@@ -103,7 +105,7 @@ impl App {
     }
 
     pub fn reload(&mut self) -> Result<(), Error> {
-        self.tasks = self.store.load_all_tasks()?;
+        self.tasks = self.store.load_tasks(self.include_archived)?;
         self.done_ids = ops::resolved_ids(&self.store, &self.tasks)?;
         let task_ids: HashSet<TaskId> = self.tasks.iter().map(|t| t.id).collect();
         self.children_map = build_children_map(&self.tasks, &self.done_ids, &task_ids);
