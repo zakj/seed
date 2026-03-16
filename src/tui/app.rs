@@ -48,6 +48,13 @@ pub struct HelpOverlay {
     pub scroll: u16,
 }
 
+pub struct Search {
+    pub input: Option<Input>,
+    pub query: String,
+    pub matches: Vec<TaskId>,
+    pub original_selection: Vec<TaskId>,
+}
+
 pub enum Mode {
     Normal(Panel),
     Edit(EditState),
@@ -64,10 +71,10 @@ impl Mode {
 
     pub fn key_tables(&self) -> &'static [&'static [keys::Hint]] {
         match self {
-            Mode::Normal(Panel::Tree) => &[keys::GLOBAL, keys::NAV, keys::TREE],
+            Mode::Normal(Panel::Tree) => &[keys::GLOBAL, keys::NAV, keys::SEARCH, keys::TREE],
             Mode::Normal(Panel::Detail) => &[keys::GLOBAL, keys::DETAIL],
-            Mode::Move(_) => &[keys::GLOBAL, keys::NAV, keys::MOVE],
-            Mode::Dep(_) => &[keys::GLOBAL, keys::NAV, keys::DEP],
+            Mode::Move(_) => &[keys::GLOBAL, keys::NAV, keys::SEARCH, keys::MOVE],
+            Mode::Dep(_) => &[keys::GLOBAL, keys::NAV, keys::SEARCH, keys::DEP],
             Mode::Priority(_) => &[keys::PRIORITY],
             Mode::Edit(_) => &[],
         }
@@ -84,6 +91,7 @@ pub struct App {
     pub parent_map: HashMap<TaskId, TaskId>,
     pub mode: Mode,
     pub help: Option<HelpOverlay>,
+    pub search: Option<Search>,
     pub detail_scroll: u16,
     pub detail_hscroll: u16,
     /// Pane areas from the last draw, used for mouse hit-testing.
@@ -116,6 +124,7 @@ impl App {
             parent_map,
             mode: Mode::Normal(Panel::Tree),
             help: None,
+            search: None,
             detail_scroll: 0,
             detail_hscroll: 0,
             tree_area: ratatui::layout::Rect::default(),
@@ -144,6 +153,11 @@ impl App {
         self.children_map = build_children_map(&self.tasks, &self.done_ids, &task_ids);
         self.parent_map = build_parent_map(&self.tasks, &task_ids);
         self.dir_mtime = self.current_mtime();
+        if let Some(ref search) = self.search {
+            let query = search.query.clone();
+            let matches = self.compute_matches(&query);
+            self.search.as_mut().unwrap().matches = matches;
+        }
         Ok(())
     }
 
@@ -183,6 +197,47 @@ impl App {
         let selected = self.tree_state.selected();
         let id = selected.last()?;
         self.tasks.iter().find(|t| &t.id == id)
+    }
+
+    /// Compute matching task IDs in tree display order.
+    pub fn compute_matches(&self, query: &str) -> Vec<TaskId> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let lower = query.to_lowercase();
+        let numeric = query.strip_prefix('#').unwrap_or(query);
+        let id_match: Option<TaskId> = numeric.parse().ok();
+
+        let mut matches = Vec::new();
+        self.collect_matches_in_tree_order(None, &lower, id_match, &mut matches);
+        matches
+    }
+
+    fn collect_matches_in_tree_order(
+        &self,
+        parent: Option<TaskId>,
+        lower_query: &str,
+        id_match: Option<TaskId>,
+        out: &mut Vec<TaskId>,
+    ) {
+        let Some(indices) = self.children_map.get(&parent) else {
+            return;
+        };
+        for &idx in indices {
+            let task = &self.tasks[idx];
+            if task.title.to_lowercase().contains(lower_query) || id_match == Some(task.id) {
+                out.push(task.id);
+            }
+            self.collect_matches_in_tree_order(Some(task.id), lower_query, id_match, out);
+        }
+    }
+
+    /// Return the set of currently matching task IDs for rendering.
+    pub fn search_match_ids(&self) -> HashSet<TaskId> {
+        self.search
+            .as_ref()
+            .map(|s| s.matches.iter().copied().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -243,43 +298,38 @@ pub enum TreeOverlay<'a> {
     Dep(&'a DepState),
 }
 
+/// Context for rendering tree items, bundled to reduce argument count.
+pub struct TreeContext<'a, 'b> {
+    pub done_ids: &'a HashSet<TaskId>,
+    pub children_map: &'a ChildrenMap,
+    pub inner_width: u16,
+    pub overlay: Option<&'b TreeOverlay<'b>>,
+    pub search_matches: &'a HashSet<TaskId>,
+}
+
 /// Build tree items from cached children map for tui-tree-widget.
 pub fn build_tree_items<'a>(
     tasks: &'a [Task],
-    done_ids: &HashSet<TaskId>,
-    children_map: &ChildrenMap,
-    inner_width: u16,
-    overlay: Option<&TreeOverlay<'_>>,
+    ctx: &TreeContext<'_, '_>,
 ) -> Vec<TreeItem<'a, TaskId>> {
-    build_tree_children(None, children_map, tasks, done_ids, inner_width, 0, overlay)
+    build_tree_children(None, tasks, ctx, 0)
 }
 
 fn build_tree_children<'a>(
     parent: Option<TaskId>,
-    children_map: &ChildrenMap,
     tasks: &'a [Task],
-    done_ids: &HashSet<TaskId>,
-    inner_width: u16,
+    ctx: &TreeContext<'_, '_>,
     depth: usize,
-    overlay: Option<&TreeOverlay<'_>>,
 ) -> Vec<TreeItem<'a, TaskId>> {
-    let Some(indices) = children_map.get(&parent) else {
+    let Some(indices) = ctx.children_map.get(&parent) else {
         return Vec::new();
     };
     indices
         .iter()
         .map(|&idx| {
             let task = &tasks[idx];
-            let grandchildren = build_tree_children(
-                Some(task.id),
-                children_map,
-                tasks,
-                done_ids,
-                inner_width,
-                depth + 1,
-                overlay,
-            );
-            let text = task_line(task, done_ids, inner_width, depth, overlay);
+            let grandchildren = build_tree_children(Some(task.id), tasks, ctx, depth + 1);
+            let text = task_line(task, depth, ctx);
             if grandchildren.is_empty() {
                 TreeItem::new_leaf(task.id, text)
             } else {
@@ -390,24 +440,18 @@ fn resolve_task_style(task_id: TaskId, overlay: Option<&TreeOverlay<'_>>) -> Tas
     }
 }
 
-fn task_line<'a>(
-    task: &'a Task,
-    done_ids: &HashSet<TaskId>,
-    inner_width: u16,
-    depth: usize,
-    overlay: Option<&TreeOverlay<'_>>,
-) -> Line<'a> {
+fn task_line<'a>(task: &'a Task, depth: usize, ctx: &TreeContext<'_, '_>) -> Line<'a> {
     use unicode_width::UnicodeWidthStr;
 
-    let indicator = task.indicator(task.is_blocked(done_ids));
+    let indicator = task.indicator(task.is_blocked(ctx.done_ids));
     let resolved = task.status.is_resolved();
     let dim = Style::new().add_modifier(Modifier::DIM);
-    let ts = resolve_task_style(task.id, overlay);
+    let ts = resolve_task_style(task.id, ctx.overlay);
 
     let id_str = format!("#{}", task.id);
     let prefix_w = UnicodeWidthStr::width(ts.prefix);
     // Content width: inner panel width minus indent (2*depth) minus node symbol (2)
-    let content_width = (inner_width as usize).saturating_sub(2 * depth + 2);
+    let content_width = (ctx.inner_width as usize).saturating_sub(2 * depth + 2);
     let indicator_w = 2; // symbol + space
     let id_w = id_str.len();
     let title_max = content_width.saturating_sub(prefix_w + indicator_w + 1 + id_w);
@@ -445,6 +489,13 @@ fn task_line<'a>(
         .style_override
         .unwrap_or_else(|| anstyle_to_ratatui(indicator.color));
 
+    let is_match = ctx.search_matches.contains(&task.id);
+    let id_style = if is_match {
+        Style::new().fg(Color::Yellow)
+    } else {
+        dim
+    };
+
     let mut spans = Vec::new();
     if !ts.prefix.is_empty() {
         spans.push(Span::styled(ts.prefix, Style::new().fg(ts.prefix_color)));
@@ -453,7 +504,7 @@ fn task_line<'a>(
         Span::styled(format!("{} ", indicator.symbol), indicator_style),
         title_span,
         Span::raw(" ".repeat(padding)),
-        Span::styled(id_str, dim),
+        Span::styled(id_str, id_style),
     ]);
     Line::from(spans)
 }

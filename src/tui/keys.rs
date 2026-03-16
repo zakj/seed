@@ -40,6 +40,10 @@ pub enum Command {
     Unparent,
     // Dep sub-mode
     ToggleDep,
+    // Search
+    SearchMode,
+    SearchNext,
+    SearchPrev,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -219,6 +223,27 @@ pub const TREE: &[Hint] = &[
         keys: &[(KeyCode::Char('y'), Command::CopyId)],
         label: "y",
         description: "copy id",
+        footer: Footer::Hidden,
+    },
+];
+
+pub const SEARCH: &[Hint] = &[
+    Hint {
+        keys: &[(KeyCode::Char('/'), Command::SearchMode)],
+        label: "/",
+        description: "search",
+        footer: Footer::Left,
+    },
+    Hint {
+        keys: &[(KeyCode::Char('n'), Command::SearchNext)],
+        label: "n/N",
+        description: "next/prev match",
+        footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[(KeyCode::Char('N'), Command::SearchPrev)],
+        label: "",
+        description: "",
         footer: Footer::Hidden,
     },
 ];

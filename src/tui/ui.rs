@@ -71,13 +71,15 @@ fn build_overlay(app: &App) -> Option<app::TreeOverlay<'_>> {
 fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner_width = area.width.saturating_sub(2);
     let overlay = build_overlay(app);
-    let items = app::build_tree_items(
-        &app.tasks,
-        &app.done_ids,
-        &app.children_map,
+    let search_matches = app.search_match_ids();
+    let ctx = app::TreeContext {
+        done_ids: &app.done_ids,
+        children_map: &app.children_map,
         inner_width,
-        overlay.as_ref(),
-    );
+        overlay: overlay.as_ref(),
+        search_matches: &search_matches,
+    };
+    let items = app::build_tree_items(&app.tasks, &ctx);
 
     let title: std::borrow::Cow<str> = match &app.mode {
         Mode::Move(ms) => format!(" Move #{} ", ms.task_id).into(),
@@ -85,15 +87,50 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         _ => " Tasks ".into(),
     };
 
+    let border_style = focused_border_style(Panel::Tree, app.panel());
+    let mut block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(border_style);
+
+    if let Some(ref search) = app.search {
+        // Available width for query text inside the bottom border.
+        let prefix_width = 3; // " / "
+        let query_budget = (area.width as usize).saturating_sub(prefix_width + 4); // borders + pad
+
+        let display_query = match search.input {
+            Some(ref input) => {
+                let scroll = input.visual_scroll(query_budget);
+                let value = input.value();
+                &value[value
+                    .char_indices()
+                    .nth(scroll)
+                    .map(|(i, _)| i)
+                    .unwrap_or(value.len())..]
+            }
+            None => search.query.as_str(),
+        };
+
+        let mut spans = vec![
+            Span::styled(" / ", Style::new().fg(Color::Yellow)),
+            Span::raw(display_query.to_string()),
+            Span::raw("  "),
+        ];
+        if !search.query.is_empty() {
+            let match_count = search.matches.len();
+            let count_str = format!(
+                "[{match_count} match{}] ",
+                if match_count == 1 { "" } else { "es" }
+            );
+            spans.push(Span::styled(count_str, Style::new().fg(Color::Yellow)));
+        }
+        block = block.title_bottom(Line::from(spans));
+    }
+
     let tree = Tree::new(&items)
         .expect("task IDs are unique")
-        .block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .border_set(border::ROUNDED)
-                .border_style(focused_border_style(Panel::Tree, app.panel())),
-        )
+        .block(block)
         .highlight_style(
             Style::new()
                 .bg(Color::Indexed(235))
@@ -103,6 +140,20 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         .node_open_symbol("▾ ")
         .node_no_children_symbol("  ");
     frame.render_stateful_widget(tree, area, &mut app.tree_state);
+
+    // Position cursor in the bottom title when search input is active.
+    if let Some(ref search) = app.search
+        && let Some(ref input) = search.input
+    {
+        let query_budget = (area.width as usize).saturating_sub(3 + 4);
+        let scroll = input.visual_scroll(query_budget);
+        let cursor_offset = input.visual_cursor().saturating_sub(scroll) as u16;
+        let cursor_x = area.x + 4 + cursor_offset;
+        frame.set_cursor_position(ratatui::layout::Position::new(
+            cursor_x.min(area.x + area.width - 2),
+            area.y + area.height - 1,
+        ));
+    }
 }
 
 fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -447,6 +498,7 @@ fn draw_help_overlay(frame: &mut Frame, app: &mut App) {
     ];
     let right_sections: &[(&str, &[keys::Hint])] = &[
         ("Detail pane", keys::DETAIL),
+        ("Search", keys::SEARCH),
         ("Move mode", keys::MOVE),
         ("Dep mode", keys::DEP),
     ];

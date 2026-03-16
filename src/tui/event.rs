@@ -7,7 +7,7 @@ use tui_input::backend::crossterm::EventHandler;
 
 use std::collections::HashSet;
 
-use super::app::{self, App, DepState, EditState, HelpOverlay, Mode, MoveState, Panel};
+use super::app::{self, App, DepState, EditState, HelpOverlay, Mode, MoveState, Panel, Search};
 use super::keys::{self, Command};
 use crate::error::Error;
 use crate::ops::{self, Edits};
@@ -39,6 +39,9 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
         if matches!(app.mode, Mode::Edit(_)) {
             return Ok(handle_edit_event(app, &ev));
         }
+        if app.search.as_ref().is_some_and(|s| s.input.is_some()) {
+            return Ok(handle_search_event(app, &ev));
+        }
         let action = match ev {
             Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(app, key.code),
             Event::Mouse(mouse) => {
@@ -60,6 +63,11 @@ fn handle_key(app: &mut App, code: KeyCode) -> Action {
     app.status_message = None;
     if app.help.is_some() {
         return handle_help_key(app, code);
+    }
+    // Esc in Normal mode with search active: clear search highlighting.
+    if code == KeyCode::Esc && matches!(app.mode, Mode::Normal(_)) && app.search.is_some() {
+        app.search = None;
+        return Action::Continue;
     }
     match &app.mode {
         Mode::Priority(_) => handle_priority_key(app, code),
@@ -370,6 +378,18 @@ fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
             app.detail_hscroll = 0;
             Some(Action::Continue)
         }
+        Command::SearchMode => {
+            start_search(app);
+            Some(Action::Continue)
+        }
+        Command::SearchNext => {
+            search_next(app, false);
+            Some(Action::Continue)
+        }
+        Command::SearchPrev => {
+            search_next(app, true);
+            Some(Action::Continue)
+        }
         _ => None,
     }
 }
@@ -554,6 +574,80 @@ fn handle_dep_key(app: &mut App, code: KeyCode) -> Action {
         _ => {}
     }
     Action::Continue
+}
+
+fn handle_search_event(app: &mut App, ev: &Event) -> Action {
+    let Event::Key(key) = ev else {
+        return Action::Continue;
+    };
+    if key.kind != KeyEventKind::Press {
+        return Action::Continue;
+    }
+    match key.code {
+        KeyCode::Enter => {
+            if let Some(ref mut search) = app.search {
+                search.input = None;
+            }
+        }
+        KeyCode::Esc => {
+            if let Some(search) = app.search.take() {
+                app.tree_state.select(search.original_selection);
+            }
+        }
+        _ => {
+            if let Some(ref mut search) = app.search {
+                let input = search.input.as_mut().unwrap();
+                input.handle_event(ev);
+                search.query = input.value().to_string();
+            }
+            let query = app.search.as_ref().unwrap().query.clone();
+            let matches = app.compute_matches(&query);
+            let first = matches.first().copied();
+            app.search.as_mut().unwrap().matches = matches;
+            if let Some(id) = first {
+                select_task(app, id);
+            }
+        }
+    }
+    Action::Continue
+}
+
+fn start_search(app: &mut App) {
+    let previous_query = app
+        .search
+        .as_ref()
+        .map(|s| s.query.clone())
+        .unwrap_or_default();
+    let original_selection = app.tree_state.selected().to_vec();
+    let input = Input::new(previous_query.clone());
+    let matches = app.compute_matches(&previous_query);
+    app.search = Some(Search {
+        input: Some(input),
+        query: previous_query,
+        matches,
+        original_selection,
+    });
+}
+
+fn search_next(app: &mut App, reverse: bool) {
+    let Some(ref search) = app.search else {
+        return;
+    };
+    let matches = &search.matches;
+    if matches.is_empty() {
+        return;
+    }
+    let current = app.tree_state.selected().last().copied();
+    let pos = current.and_then(|id| matches.iter().position(|&m| m == id));
+    let next = match (pos, reverse) {
+        (Some(p), false) => matches.get(p + 1).or(matches.first()),
+        (Some(0), true) | (None, true) => matches.last(),
+        (Some(p), true) => matches.get(p - 1),
+        (None, false) => matches.first(),
+    };
+    if let Some(&id) = next {
+        select_task(app, id);
+    }
 }
 
 fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
