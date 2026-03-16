@@ -38,6 +38,26 @@ pub fn kdl_int(v: TaskId) -> kdl::KdlEntry {
     kdl::KdlEntry::new(i128::from(v.as_u32()))
 }
 
+/// Build a KDL entry for a string, using a raw multiline `#"""..."""#` repr
+/// when the string contains newlines for human-readable .kdl files.
+fn kdl_multiline_string(s: &str) -> kdl::KdlEntry {
+    let mut entry = kdl::KdlEntry::new(s.to_owned());
+    if s.contains('\n') {
+        // Pick enough #s so the closing delimiter can't appear in the content.
+        let mut hashes = String::from("#");
+        while s.contains(&format!("\"\"\"{hashes}")) {
+            hashes.push('#');
+        }
+        entry.set_format(kdl::KdlEntryFormat {
+            value_repr: format!("{hashes}\"\"\"\n{s}\n\"\"\"{hashes}"),
+            leading: " ".into(),
+            autoformat_keep: true,
+            ..Default::default()
+        });
+    }
+    entry
+}
+
 pub struct Style {
     pub symbol: &'static str,
     pub label: &'static str,
@@ -293,12 +313,6 @@ impl Task {
         title_node.push(kdl::KdlEntry::new(self.title.clone()));
         children.nodes_mut().push(title_node);
 
-        if let Some(desc) = &self.description {
-            let mut desc_node = kdl::KdlNode::new("description");
-            desc_node.push(kdl::KdlEntry::new(desc.clone()));
-            children.nodes_mut().push(desc_node);
-        }
-
         if !self.labels.is_empty() {
             let mut labels_node = kdl::KdlNode::new("labels");
             for label in &self.labels {
@@ -328,6 +342,12 @@ impl Task {
         let mut modified_node = kdl::KdlNode::new("modified");
         modified_node.push(kdl::KdlEntry::new(self.modified.to_rfc3339()));
         children.nodes_mut().push(modified_node);
+
+        if let Some(desc) = &self.description {
+            let mut desc_node = kdl::KdlNode::new("description");
+            desc_node.push(kdl_multiline_string(desc));
+            children.nodes_mut().push(desc_node);
+        }
 
         if !self.log.is_empty() {
             let mut log_node = kdl::KdlNode::new("log");

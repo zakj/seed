@@ -44,12 +44,12 @@ next-id 8
 ```kdl
 task id=7 status="in-progress" priority="high" {
   title "Add retry logic to API client"
-  description #"
+  description #"""
     The API client silently drops failed requests.
 
     Found that the catch block in src/api/client.ts:142
     swallows the error without retrying or logging.
-  "#
+  """#
   labels "bug" "api"
   parent 3
   depends 5 6
@@ -148,7 +148,7 @@ sd tui                           Interactive terminal UI (alias: sd t)
 Lightweight interactive interface behind the `tui` feature flag (default on).
 Built on ratatui with crossterm backend. Scope:
 
-- View tasks in tree or flat list
+- View tasks in a nested tree
 - Filter by status, priority, labels
 - Navigate with keyboard (vim-style)
 - Change status and priority inline
