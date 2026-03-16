@@ -160,6 +160,9 @@ Built on ratatui with crossterm backend. Scope:
   Descendants of the moved task are invalid targets.
 - Manage dependencies (`D` → dep mode): navigate and press Enter to toggle deps
   on/off. Cycle detection prevents invalid additions.
+- Search (`/`): case-insensitive title substring + `#id` match. Matching tasks
+  highlighted in tree. `n`/`N` cycle next/prev match. Works across Normal, Move,
+  and Dep modes.
 
 Declarative keybinding tables in `tui/keys.rs` are the single source of truth
 for key dispatch, footer hints, and help overlay (`?`).
