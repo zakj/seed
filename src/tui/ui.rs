@@ -15,6 +15,29 @@ use super::markdown;
 use crate::format::{format_date, format_datetime};
 use crate::task::{Priority, Task, TaskId};
 
+/// Truncate `s` to `max_width` display columns, appending '…' if truncated.
+pub(super) fn truncate_with_ellipsis(s: &str, max_width: usize) -> String {
+    let w = UnicodeWidthStr::width(s);
+    if w <= max_width {
+        return s.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    let mut truncated = String::new();
+    let mut used = 0;
+    for ch in s.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + cw > max_width.saturating_sub(1) {
+            break;
+        }
+        truncated.push(ch);
+        used += cw;
+    }
+    truncated.push('…');
+    truncated
+}
+
 pub const PRIORITIES: [Priority; 4] = [
     Priority::Critical,
     Priority::High,
@@ -27,19 +50,37 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let [main_area, footer_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-    let [tree_area, detail_area] =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .areas(main_area);
+    if app.zoomed {
+        match app.panel() {
+            Panel::Tree => {
+                app.tree_area = main_area;
+                app.detail_area = Rect::default();
+                draw_tree(frame, app, main_area);
+                if app.selected_task().is_none() {
+                    app.tree_state.select_first();
+                }
+            }
+            Panel::Detail => {
+                app.tree_area = Rect::default();
+                app.detail_area = main_area;
+                draw_detail(frame, app, main_area);
+            }
+        }
+    } else {
+        let [tree_area, detail_area] =
+            Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
+                .areas(main_area);
 
-    // Store areas for mouse hit-testing in event handler.
-    app.tree_area = tree_area;
-    app.detail_area = detail_area;
+        // Store areas for mouse hit-testing in event handler.
+        app.tree_area = tree_area;
+        app.detail_area = detail_area;
 
-    draw_tree(frame, app, tree_area);
-    if app.selected_task().is_none() {
-        app.tree_state.select_first();
+        draw_tree(frame, app, tree_area);
+        if app.selected_task().is_none() {
+            app.tree_state.select_first();
+        }
+        draw_detail(frame, app, detail_area);
     }
-    draw_detail(frame, app, detail_area);
     draw_footer(frame, app, footer_area);
 
     match &app.mode {
@@ -156,24 +197,80 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+/// Add top border titles for the zoomed detail pane.
+/// Degradation: drop date first, then task ID, then truncate title.
+fn add_zoomed_detail_titles<'a>(
+    mut block: Block<'a>,
+    task: &Task,
+    app: &App,
+    area: Rect,
+) -> Block<'a> {
+    let indicator = task.indicator(task.is_blocked(&app.done_ids));
+    let indicator_style = app::anstyle_to_ratatui(indicator.color);
+    let indicator_str = format!(" {} ", indicator.symbol);
+    let id_str = format!(" #{}", task.id);
+    let date_str = format!(" {} ", format_date(&task.modified));
+    let dim = Style::new().add_modifier(Modifier::DIM);
+
+    let avail = (area.width as usize).saturating_sub(2);
+    let fixed = UnicodeWidthStr::width(indicator_str.as_str()) + 1; // indicator + trailing space
+    let title_w = UnicodeWidthStr::width(task.title.as_str());
+    let id_w = UnicodeWidthStr::width(id_str.as_str());
+    let date_w = UnicodeWidthStr::width(date_str.as_str());
+
+    let full = fixed + title_w + id_w + date_w;
+    let (show_date, show_id, title_budget) = if full <= avail {
+        (true, true, title_w)
+    } else if fixed + title_w + id_w <= avail {
+        (false, true, title_w)
+    } else if fixed + title_w <= avail {
+        (false, false, title_w)
+    } else {
+        (false, false, avail.saturating_sub(fixed))
+    };
+
+    let mut spans = vec![
+        Span::styled(indicator_str, indicator_style),
+        Span::raw(truncate_with_ellipsis(&task.title, title_budget)),
+    ];
+    if show_id {
+        spans.push(Span::styled(id_str, dim));
+    }
+    spans.push(Span::raw(" "));
+    block = block.title(Line::from(spans));
+
+    if show_date {
+        block = block.title(
+            Line::from(Span::styled(
+                date_str,
+                focused_border_style(Panel::Detail, app.panel()),
+            ))
+            .right_aligned(),
+        );
+    }
+    block
+}
+
 fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     let selected = app.selected_task();
-
-    let date_title = selected.map(|task| {
-        Line::from(Span::styled(
-            format!(" {} ", format_date(&task.modified)),
-            focused_border_style(Panel::Detail, app.panel()),
-        ))
-        .right_aligned()
-    });
 
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
         .border_style(focused_border_style(Panel::Detail, app.panel()))
         .padding(Padding::right(1));
-    if let Some(title) = date_title {
-        block = block.title(title);
+    if app.zoomed
+        && let Some(task) = selected
+    {
+        block = add_zoomed_detail_titles(block, task, app, area);
+    } else if let Some(task) = selected {
+        block = block.title(
+            Line::from(Span::styled(
+                format!(" {} ", format_date(&task.modified)),
+                focused_border_style(Panel::Detail, app.panel()),
+            ))
+            .right_aligned(),
+        );
     }
     let inner = block.inner(area);
 
@@ -420,6 +517,11 @@ fn hint_spans(hint: &keys::Hint) -> Vec<Span<'static>> {
     ]
 }
 
+fn hint_width(hint: &keys::Hint) -> usize {
+    // " label " + " description "
+    hint.label.len() + 2 + hint.description.len() + 2
+}
+
 fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
     let visible: Vec<&keys::Hint> = tables
         .iter()
@@ -431,23 +533,28 @@ fn render_hints(frame: &mut Frame, area: Rect, tables: &[&[keys::Hint]]) {
         .into_iter()
         .partition(|h| h.footer == keys::Footer::Right);
 
-    let mut left_spans: Vec<Span> = left
-        .iter()
-        .enumerate()
-        .flat_map(|(i, hint)| {
-            let mut s = hint_spans(hint);
-            if i < left.len() - 1 {
-                s.push(Span::raw(" "));
-            }
-            s
-        })
-        .collect();
+    let total_width = area.width as usize;
+    let right_spans: Vec<Span> = right.iter().flat_map(|h| hint_spans(h)).collect();
+    let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
+    let left_budget = total_width.saturating_sub(right_width);
 
-    if !right.is_empty() {
-        let right_spans: Vec<Span> = right.iter().flat_map(|h| hint_spans(h)).collect();
-        let left_width: usize = left_spans.iter().map(|s| s.width()).sum();
-        let right_width: usize = right_spans.iter().map(|s| s.width()).sum();
-        let gap = (area.width as usize).saturating_sub(left_width + right_width);
+    // Greedily add left hints while they fit.
+    let mut left_spans: Vec<Span> = Vec::new();
+    let mut used = 0;
+    for (i, hint) in left.iter().enumerate() {
+        let w = hint_width(hint) + if i > 0 { 1 } else { 0 }; // spacing between hints
+        if used + w > left_budget {
+            break;
+        }
+        if i > 0 {
+            left_spans.push(Span::raw(" "));
+        }
+        left_spans.extend(hint_spans(hint));
+        used += w;
+    }
+
+    if !right_spans.is_empty() {
+        let gap = total_width.saturating_sub(used + right_width);
         left_spans.push(Span::raw(" ".repeat(gap)));
         left_spans.extend(right_spans);
     }

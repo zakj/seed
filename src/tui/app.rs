@@ -99,6 +99,7 @@ pub struct App {
     pub detail_area: ratatui::layout::Rect,
     /// Maps detail content line indices to dep TaskIds for click navigation.
     pub detail_dep_lines: Vec<(usize, TaskId)>,
+    pub zoomed: bool,
     pub status_message: Option<(String, Instant)>,
     pub dir_mtime: Option<SystemTime>,
     pub last_refresh_check: Instant,
@@ -130,6 +131,7 @@ impl App {
             tree_area: ratatui::layout::Rect::default(),
             detail_area: ratatui::layout::Rect::default(),
             detail_dep_lines: Vec::new(),
+            zoomed: false,
             status_message: None,
             dir_mtime: None,
             last_refresh_check: Instant::now(),
@@ -462,17 +464,7 @@ fn task_line<'a>(task: &'a Task, depth: usize, ctx: &TreeContext<'_, '_>) -> Lin
         .unwrap_or(if resolved { dim } else { Style::default() });
 
     let (title_span, padding) = if title_w > title_max {
-        let mut truncated = String::new();
-        let mut w = 0;
-        for ch in task.title.chars() {
-            let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-            if w + cw > title_max.saturating_sub(1) {
-                break;
-            }
-            truncated.push(ch);
-            w += cw;
-        }
-        truncated.push('…');
+        let truncated = super::ui::truncate_with_ellipsis(&task.title, title_max);
         let actual_w = UnicodeWidthStr::width(truncated.as_str());
         let pad = content_width
             .saturating_sub(prefix_w + indicator_w + actual_w + id_w)
