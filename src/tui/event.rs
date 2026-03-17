@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 use ratatui::layout::Position;
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
@@ -43,7 +43,9 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
             return Ok(handle_search_event(app, &ev));
         }
         let action = match ev {
-            Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(app, key.code),
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                handle_key(app, key.code, key.modifiers)
+            }
             Event::Mouse(mouse) => {
                 handle_mouse(app, mouse);
                 Action::Continue
@@ -59,7 +61,13 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
     }
 }
 
-fn handle_key(app: &mut App, code: KeyCode) -> Action {
+fn handle_key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Action {
+    // Normalize Ctrl-F/Ctrl-B to PageDown/PageUp.
+    let code = match (code, modifiers.contains(KeyModifiers::CONTROL)) {
+        (KeyCode::Char('f'), true) => KeyCode::PageDown,
+        (KeyCode::Char('b'), true) => KeyCode::PageUp,
+        _ => code,
+    };
     app.status_message = None;
     if app.help.is_some() {
         return handle_help_key(app, code);
@@ -115,6 +123,14 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         }
         Command::ScrollUp => {
             app.detail_scroll = app.detail_scroll.saturating_sub(1);
+        }
+        Command::ScrollPageDown => {
+            let page = app.detail_area.height.saturating_sub(2).saturating_sub(1);
+            app.detail_scroll = app.detail_scroll.saturating_add(page);
+        }
+        Command::ScrollPageUp => {
+            let page = app.detail_area.height.saturating_sub(2).saturating_sub(1);
+            app.detail_scroll = app.detail_scroll.saturating_sub(page);
         }
         Command::ScrollRight => {
             app.detail_hscroll = app.detail_hscroll.saturating_add(2);
