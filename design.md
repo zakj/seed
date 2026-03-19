@@ -163,6 +163,11 @@ Built on ratatui with crossterm backend. Scope:
 - Search (`/`): case-insensitive title substring + `#id` match. Matching tasks
   highlighted in tree. `n`/`N` cycle next/prev match. Works across Normal, Move,
   and Dep modes.
+- Zoom (`z`): toggle full-width view of the active pane. `Tab` switches which
+  pane is shown. Detail pane shows task title/id in the border when zoomed.
+- Footer hints use greedy fitting: right hints are reserved first, then left
+  hints are added one at a time until space runs out, giving graceful
+  degradation at narrow widths.
 
 Declarative keybinding tables in `tui/keys.rs` are the single source of truth
 for key dispatch, footer hints, and help overlay (`?`).

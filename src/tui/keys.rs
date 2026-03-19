@@ -40,6 +40,8 @@ pub enum Command {
     Unparent,
     // Dep sub-mode
     ToggleDep,
+    // Zoom
+    Zoom,
     // Search
     SearchMode,
     SearchNext,
@@ -72,6 +74,12 @@ pub const GLOBAL: &[Hint] = &[
         label: "Tab",
         description: "switch pane",
         footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[(KeyCode::Char('z'), Command::Zoom)],
+        label: "z",
+        description: "zoom",
+        footer: Footer::Left,
     },
     Hint {
         keys: &[(KeyCode::Char('?'), Command::ShowHelp)],

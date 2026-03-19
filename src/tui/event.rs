@@ -103,6 +103,10 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             app.mode = Mode::Normal(new_panel);
         }
 
+        Command::Zoom => {
+            app.zoomed = !app.zoomed;
+        }
+
         Command::Toggle => {
             app.tree_state.toggle_selected();
         }
