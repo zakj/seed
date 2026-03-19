@@ -29,6 +29,8 @@ pub enum Command {
     ScrollUp,
     ScrollLeft,
     ScrollRight,
+    ScrollPageDown,
+    ScrollPageUp,
     // Priority sub-mode
     SetCritical,
     SetHigh,
@@ -307,6 +309,18 @@ pub const DETAIL: &[Hint] = &[
             (KeyCode::Char('G'), Command::Last),
             (KeyCode::End, Command::Last),
         ],
+        label: "",
+        description: "",
+        footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[(KeyCode::PageDown, Command::ScrollPageDown)],
+        label: "PgDn/PgUp",
+        description: "page",
+        footer: Footer::Hidden,
+    },
+    Hint {
+        keys: &[(KeyCode::PageUp, Command::ScrollPageUp)],
         label: "",
         description: "",
         footer: Footer::Hidden,
