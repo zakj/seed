@@ -791,21 +791,23 @@ fn detail_dep_hit(app: &App, row: u16) -> Option<TaskId> {
 
 fn handle_mouse(app: &mut App, mouse: event::MouseEvent) {
     match mouse.kind {
-        MouseEventKind::Down(_) => {
-            if let Some(Panel::Detail) = hit_panel(app, mouse.column, mouse.row)
-                && let Some(dep_id) = detail_dep_hit(app, mouse.row)
-            {
-                select_task(app, dep_id);
-                return;
+        MouseEventKind::Down(_) => match hit_panel(app, mouse.column, mouse.row) {
+            Some(Panel::Detail) => {
+                if let Some(dep_id) = detail_dep_hit(app, mouse.row) {
+                    select_task(app, dep_id);
+                }
             }
-            let prev_selected = app.tree_state.selected().to_vec();
-            app.tree_state
-                .click_at(Position::new(mouse.column, mouse.row));
-            if app.tree_state.selected() != prev_selected {
-                app.detail_scroll = 0;
-                app.detail_hscroll = 0;
+            Some(Panel::Tree) => {
+                let prev_selected = app.tree_state.selected().to_vec();
+                app.tree_state
+                    .click_at(Position::new(mouse.column, mouse.row));
+                if app.tree_state.selected() != prev_selected {
+                    app.detail_scroll = 0;
+                    app.detail_hscroll = 0;
+                }
             }
-        }
+            None => {}
+        },
         MouseEventKind::ScrollDown => match hit_panel(app, mouse.column, mouse.row) {
             Some(Panel::Tree) => {
                 if !tree_content_fits(app) {
