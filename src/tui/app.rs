@@ -227,7 +227,13 @@ impl App {
         };
         for &idx in indices {
             let task = &self.tasks[idx];
-            if task.title.to_lowercase().contains(lower_query) || id_match == Some(task.id) {
+            if task.title.to_lowercase().contains(lower_query)
+                || id_match == Some(task.id)
+                || task
+                    .labels
+                    .iter()
+                    .any(|l| l.to_lowercase().contains(lower_query))
+            {
                 out.push(task.id);
             }
             self.collect_matches_in_tree_order(Some(task.id), lower_query, id_match, out);
