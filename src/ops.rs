@@ -302,7 +302,11 @@ pub fn filter_subtree(tasks: &[Task], root: TaskId) -> Result<Vec<Task>, Error> 
             queue.extend(child_ids);
         }
     }
-    Ok(tasks.iter().filter(|t| ids.contains(&t.id)).cloned().collect())
+    Ok(tasks
+        .iter()
+        .filter(|t| ids.contains(&t.id))
+        .cloned()
+        .collect())
 }
 
 /// Launch `$VISUAL` or `$EDITOR` on the given text, returning the edited result.

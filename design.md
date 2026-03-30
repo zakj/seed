@@ -108,7 +108,8 @@ Never prompts interactively — TUI is the only interactive interface.
 
 ```
 sd add "title"                   Create task, print ID (-q for just ID)
-sd list                          Tree view (--flat, --json, --status, -l label)
+sd list [<id>]                   Tree view (--flat, --json, --status, -l label)
+                                 With <id>: scoped to subtree
 sd show <id>                     Full task detail
 sd edit <id>                     Open description in $EDITOR
 sd edit <id> --field value       Flag-based field updates
@@ -126,10 +127,10 @@ sd tui                           Interactive terminal UI (alias: sd t)
 
 ### Agent-friendly design
 
-- `--json` on every command: stable schema, typed values. `sd show` returns an
-  object; `sd list` / `sd next` return arrays of full task objects including
-  `children` IDs, so one call gives the full task graph. Resolved deps are
-  stripped from JSON output so agents don't see false blockers.
+- `--json` on every command: compact single-line output, stable schema, typed
+  values. `sd show` returns an object; `sd list` / `sd next` return arrays of
+  full task objects including `children` IDs, so one call gives the full task
+  graph. Resolved deps are stripped so agents don't see false blockers.
 - `-q` / `--quiet`: output just the ID for scripting
 - Predictable exit codes: 0 success, 1 error, 2 usage (via clap)
 - Errors to stderr, structured as JSON when `--json` is active

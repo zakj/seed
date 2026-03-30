@@ -1213,3 +1213,132 @@ fn log_nonexistent_task_fails() {
         .failure()
         .stderr(predicates::str::contains("not found"));
 }
+
+#[test]
+fn list_subtree() {
+    let dir = init_project();
+    sd().args(["add", "Parent"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Child A", "--parent", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Child B", "--parent", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Unrelated"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Subtree of task 1 should include parent and both children, not unrelated
+    let out = sd()
+        .args(["list", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("Parent"));
+    assert!(stdout.contains("Child A"));
+    assert!(stdout.contains("Child B"));
+    assert!(!stdout.contains("Unrelated"));
+
+    // Tree structure preserved
+    assert!(stdout.contains("├─") || stdout.contains("└─"));
+}
+
+#[test]
+fn list_subtree_json() {
+    let dir = init_project();
+    sd().args(["add", "Parent"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Child", "--parent", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Unrelated"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let out = sd()
+        .args(["list", "1", "--json"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let tasks: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(tasks[0]["title"], "Parent");
+    assert_eq!(tasks[1]["title"], "Child");
+}
+
+#[test]
+fn list_subtree_with_filter() {
+    let dir = init_project();
+    sd().args(["add", "Parent"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "Child", "--parent", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["done", "2", "--force"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let out = sd()
+        .args(["list", "1", "--status", "todo"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("Parent"));
+    assert!(!stdout.contains("Child"));
+}
+
+#[test]
+fn list_subtree_nonexistent() {
+    let dir = init_project();
+    sd().args(["list", "999"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("not found"));
+}
+
+#[test]
+fn json_output_is_compact() {
+    let dir = init_project();
+    sd().args(["add", "Test task"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // list --json should be compact (single line)
+    let out = sd()
+        .args(["list", "--json"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 1, "JSON output should be a single line");
+
+    // show --json should be compact too
+    let out = sd()
+        .args(["show", "1", "--json"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 1, "JSON output should be a single line");
+}
