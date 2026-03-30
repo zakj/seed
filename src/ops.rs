@@ -287,6 +287,28 @@ pub fn children_map(all_tasks: &[Task]) -> HashMap<TaskId, Vec<TaskId>> {
     map
 }
 
+/// Filter tasks to a subtree rooted at `root`. Includes the root and all
+/// descendants found in `tasks`. Returns an error if the root is not present.
+pub fn filter_subtree(tasks: &[Task], root: TaskId) -> Result<Vec<Task>, Error> {
+    if !tasks.iter().any(|t| t.id == root) {
+        return Err(Error::TaskNotFound(root));
+    }
+    let children = children_map(tasks);
+    let mut ids = HashSet::new();
+    let mut queue = vec![root];
+    while let Some(id) = queue.pop() {
+        ids.insert(id);
+        if let Some(child_ids) = children.get(&id) {
+            queue.extend(child_ids);
+        }
+    }
+    Ok(tasks
+        .iter()
+        .filter(|t| ids.contains(&t.id))
+        .cloned()
+        .collect())
+}
+
 /// Launch `$VISUAL` or `$EDITOR` on the given text, returning the edited result.
 /// Returns `Ok(None)` if the user made no changes.
 pub fn edit_in_editor(original: &str) -> Result<Option<String>, Error> {
