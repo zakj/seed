@@ -353,7 +353,7 @@ fn cmd_add(cli: &Cli, args: &AddArgs) -> Result<(), Error> {
     )?;
 
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&task)?);
+        println!("{}", serde_json::to_string(&task)?);
     } else if args.quiet {
         println!("{}", task.id);
     } else {
@@ -370,7 +370,7 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
         let mut value = serde_json::to_value(&ctx.task)?;
         let ids: Vec<TaskId> = ctx.children.iter().map(|c| c.id).collect();
         value["children"] = serde_json::to_value(ids)?;
-        println!("{}", serde_json::to_string_pretty(&value)?);
+        println!("{}", serde_json::to_string(&value)?);
     } else {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
         let dep_refs: Vec<&Task> = ctx.deps.iter().collect();
@@ -421,7 +421,7 @@ fn cmd_list(
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(display, &done_ids, base))?
+            serde_json::to_string(&prepare_json(display, &done_ids, base))?
         );
     } else {
         print!("{}", format::format_task_list(display, flat, &done_ids));
@@ -600,7 +600,7 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(
+            serde_json::to_string(&prepare_json(
                 &result.ready,
                 &result.done_ids,
                 &result.all_tasks
@@ -653,7 +653,7 @@ fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
 
     if cli.json {
         let ids: Vec<TaskId> = to_archive.iter().map(|t| t.id).collect();
-        println!("{}", serde_json::to_string_pretty(&ids)?);
+        println!("{}", serde_json::to_string(&ids)?);
     } else {
         let n = to_archive.len();
         println!("Archived {n} task{}.", if n == 1 { "" } else { "s" });
@@ -663,7 +663,7 @@ fn cmd_archive(cli: &Cli, cutoff: Option<&str>) -> Result<(), Error> {
 
 fn print_task(cli: &Cli, task: &Task, message: impl std::fmt::Display) -> Result<(), Error> {
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(task)?);
+        println!("{}", serde_json::to_string(task)?);
     } else {
         println!("{message}");
     }
