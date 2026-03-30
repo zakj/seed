@@ -55,6 +55,9 @@ enum Command {
     /// List tasks
     #[command(alias = "ls")]
     List {
+        /// Scope to subtree rooted at this task
+        id: Option<TaskId>,
+
         /// Show flat list instead of tree
         #[arg(long)]
         flat: bool,
@@ -283,11 +286,12 @@ fn run(cli: &Cli) -> Result<(), Error> {
             include_archived,
         } => cmd_show(cli, *id, *include_archived),
         Command::List {
+            id,
             flat,
             status,
             label,
             include_archived,
-        } => cmd_list(cli, *flat, *status, label, *include_archived),
+        } => cmd_list(cli, *id, *flat, *status, label, *include_archived),
         Command::Edit(args) => {
             if args.mods != EditModifications::default() {
                 cmd_edit(cli, args)
@@ -388,6 +392,7 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
 
 fn cmd_list(
     cli: &Cli,
+    id: Option<TaskId>,
     flat: bool,
     status: Option<Status>,
     labels: &[String],
@@ -397,18 +402,26 @@ fn cmd_list(
     let tasks = store.load_tasks(include_archived)?;
     let done_ids = ops::resolved_ids(&store, &tasks)?;
 
-    let filtered;
-    let needs_filter = status.is_some() || !labels.is_empty();
-    let display = if needs_filter {
-        filtered = ops::filter_tasks(&tasks, status, labels);
-        &filtered
+    let subtree;
+    let base = if let Some(root) = id {
+        subtree = ops::filter_subtree(&tasks, root)?;
+        &subtree
     } else {
         &tasks
     };
+
+    let filtered;
+    let display = if status.is_some() || !labels.is_empty() {
+        filtered = ops::filter_tasks(base, status, labels);
+        &filtered
+    } else {
+        base
+    };
+
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&prepare_json(display, &done_ids, &tasks))?
+            serde_json::to_string_pretty(&prepare_json(display, &done_ids, base))?
         );
     } else {
         print!("{}", format::format_task_list(display, flat, &done_ids));
