@@ -4,10 +4,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use fs2::FileExt;
-
 use crate::error::Error;
-use crate::task::{Task, TaskId, kdl_int};
+use crate::task::{Task, TaskId};
 
 pub struct Store {
     root: PathBuf,
@@ -39,7 +37,6 @@ impl Store {
             Err(e) => return Err(e.into()),
         }
         fs::create_dir(root.join("tasks"))?;
-        fs::write(root.join("config.kdl"), "next-id 1\n")?;
         Ok(Self { root })
     }
 
@@ -51,18 +48,11 @@ impl Store {
         self.root.join("tasks")
     }
 
-    /// Latest mtime across tasks dir and config file.
+    /// Latest mtime of the tasks directory.
     pub fn mtime(&self) -> Option<SystemTime> {
-        let tasks_mtime = fs::metadata(self.tasks_dir())
+        fs::metadata(self.tasks_dir())
             .and_then(|m| m.modified())
-            .ok();
-        let config_mtime = fs::metadata(self.config_path())
-            .and_then(|m| m.modified())
-            .ok();
-        match (tasks_mtime, config_mtime) {
-            (Some(a), Some(b)) => Some(a.max(b)),
-            (a, b) => a.or(b),
-        }
+            .ok()
     }
 
     fn task_path(&self, id: TaskId) -> PathBuf {
@@ -77,39 +67,42 @@ impl Store {
         self.archive_dir().join(format!("{id}.kdl"))
     }
 
-    fn config_path(&self) -> PathBuf {
-        self.root.join("config.kdl")
+    /// Derive the next task ID by scanning tasks/ and archive/ for the highest existing ID.
+    pub fn next_id(&self) -> TaskId {
+        let max = Self::max_id_in(&self.tasks_dir()).max(Self::max_id_in(&self.archive_dir()));
+        TaskId::from(max.checked_add(1).expect("task ID overflow"))
     }
 
-    /// Atomically allocate the next task ID under an exclusive file lock.
-    pub fn allocate_id(&self) -> Result<TaskId, Error> {
-        let file = File::open(self.config_path())?;
-        file.lock_exclusive()?;
-        let _unlock = LockGuard(&file);
+    /// Write a new task file, failing if a file for this ID already exists.
+    pub fn create_task_file(&self, task: &Task) -> Result<(), Error> {
+        use std::io::Write;
+        let path = self.task_path(task.id);
+        let content = task.to_kdl().to_string();
+        match File::create_new(&path) {
+            Ok(mut file) => Ok(file.write_all(content.as_bytes())?),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(Error::Conflict(task.id))
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
 
-        let mut content = String::new();
-        (&file).read_to_string(&mut content)?;
-        let mut doc: kdl::KdlDocument = content.parse()?;
-        let node = doc
-            .nodes_mut()
-            .iter_mut()
-            .find(|n| n.name().value() == "next-id")
-            .ok_or_else(|| Error::InvalidConfig("missing next-id".into()))?;
-        let raw = node
-            .entries()
-            .first()
-            .and_then(|e| e.value().as_integer())
-            .ok_or_else(|| Error::InvalidConfig("next-id is not an integer".into()))?;
-        let id: u32 = raw
-            .try_into()
-            .map_err(|_| Error::InvalidConfig(format!("next-id out of range: {raw}")))?;
-        let next = id
-            .checked_add(1)
-            .ok_or_else(|| Error::InvalidConfig("next-id overflow".into()))?;
-        node.clear();
-        node.push(kdl_int(TaskId::from(next)));
-        atomic_write(&self.config_path(), &doc.to_string(), None)?;
-        Ok(TaskId::from(id))
+    fn max_id_in(dir: &Path) -> u32 {
+        let entries = match fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(_) => return 0,
+        };
+        entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()?
+                    .strip_suffix(".kdl")?
+                    .parse::<u32>()
+                    .ok()
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn read_task(&self, id: TaskId) -> Result<Task, Error> {
@@ -151,12 +144,6 @@ impl Store {
         Ok((task, mtime))
     }
 
-    pub fn write_task(&self, task: &Task) -> Result<(), Error> {
-        let path = self.task_path(task.id);
-        let doc = task.to_kdl();
-        atomic_write(&path, &doc.to_string(), None)
-    }
-
     /// Write a task, but only if the file hasn't been modified since `expected_mtime`.
     pub fn write_task_checked(&self, task: &Task, expected_mtime: SystemTime) -> Result<(), Error> {
         let path = self.task_path(task.id);
@@ -171,12 +158,6 @@ impl Store {
 
     pub fn archive_task(&self, id: TaskId) -> Result<(), Error> {
         fs::rename(self.task_path(id), self.archive_path(id))?;
-        Ok(())
-    }
-
-    /// Remove a task file entirely. Only safe for childless tasks with no dependents.
-    pub fn delete_task(&self, id: TaskId) -> Result<(), Error> {
-        fs::remove_file(self.task_path(id))?;
         Ok(())
     }
 
@@ -226,14 +207,6 @@ impl Store {
             .collect::<Result<_, _>>()?;
         tasks.sort_by_key(|t| t.id);
         Ok(tasks)
-    }
-}
-
-struct LockGuard<'a>(&'a File);
-
-impl Drop for LockGuard<'_> {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
     }
 }
 

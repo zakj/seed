@@ -13,7 +13,6 @@ tui = ["dep:arboard", "dep:ratatui", "dep:tui-tree-widget", "dep:tui-input", "de
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-fs2 = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 kdl = "6"

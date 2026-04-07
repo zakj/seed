@@ -21,7 +21,6 @@ fn init_creates_directory_structure() {
         .stdout(predicates::str::contains("Initialized"));
     assert!(dir.path().join(".seed").is_dir());
     assert!(dir.path().join(".seed/tasks").is_dir());
-    assert!(dir.path().join(".seed/config.kdl").is_file());
 }
 
 #[test]

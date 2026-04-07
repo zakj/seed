@@ -11,11 +11,15 @@ use crate::task::{Task, TaskId};
 
 use super::keys;
 
+pub enum EditKind {
+    Existing(TaskId),
+    New { parent: Option<TaskId> },
+}
+
 pub struct EditState {
-    pub task_id: TaskId,
+    pub kind: EditKind,
     pub input: Input,
     pub error: Option<String>,
-    pub is_new: bool,
 }
 
 pub struct MoveState {
@@ -163,7 +167,7 @@ impl App {
         Ok(())
     }
 
-    /// Check tasks_dir and config.kdl mtime; reload if changed. Throttled to ~1s.
+    /// Check tasks_dir mtime; reload if changed. Throttled to ~1s.
     pub fn maybe_refresh(&mut self) {
         if self.last_refresh_check.elapsed() < Duration::from_secs(1) {
             return;
