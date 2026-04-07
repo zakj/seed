@@ -11,11 +11,15 @@ use crate::task::{Task, TaskId};
 
 use super::keys;
 
+pub enum EditKind {
+    Existing(TaskId),
+    New { parent: Option<TaskId> },
+}
+
 pub struct EditState {
-    pub task_id: TaskId,
+    pub kind: EditKind,
     pub input: Input,
     pub error: Option<String>,
-    pub is_new: bool,
 }
 
 pub struct MoveState {

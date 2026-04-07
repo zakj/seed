@@ -7,7 +7,9 @@ use tui_input::backend::crossterm::EventHandler;
 
 use std::collections::HashSet;
 
-use super::app::{self, App, DepState, EditState, HelpOverlay, Mode, MoveState, Panel, Search};
+use super::app::{
+    self, App, DepState, EditKind, EditState, HelpOverlay, Mode, MoveState, Panel, Search,
+};
 use super::keys::{self, Command};
 use crate::error::Error;
 use crate::ops::{self, Edits};
@@ -147,10 +149,9 @@ fn execute(app: &mut App, cmd: Command) -> Action {
         Command::EditTitle => {
             if let Some(task) = app.selected_task() {
                 app.mode = Mode::Edit(EditState {
-                    task_id: task.id,
+                    kind: EditKind::Existing(task.id),
                     input: Input::new(task.title.clone()),
                     error: None,
-                    is_new: false,
                 });
             }
         }
@@ -160,11 +161,11 @@ fn execute(app: &mut App, cmd: Command) -> Action {
             }
         }
         Command::AddTask => {
-            create_and_edit_task(app, None);
+            edit_new_task(app, None);
         }
         Command::AddChildTask => {
             let parent = app.selected_task().map(|t| t.id);
-            create_and_edit_task(app, parent);
+            edit_new_task(app, parent);
         }
 
         // Status mutations
@@ -684,42 +685,62 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
         KeyCode::Enter => {
             let title = edit.input.value().trim().to_string();
             if title.is_empty() {
-                if edit.is_new {
-                    let Mode::Edit(edit) = app.mode.take() else {
-                        unreachable!()
-                    };
-                    let _ = app.store.delete_task(edit.task_id);
-                    let _ = app.reload();
-                    return Action::Continue;
+                if matches!(edit.kind, EditKind::New { .. }) {
+                    app.mode.take();
+                } else {
+                    edit.error = Some("Title cannot be empty".into());
                 }
-                edit.error = Some("Title cannot be empty".into());
                 return Action::Continue;
             }
             let Mode::Edit(edit) = app.mode.take() else {
                 unreachable!()
             };
-            let edits = Edits {
-                title: Some(title),
-                ..Edits::default()
-            };
-            if let Err(e) =
-                ops::apply_edits(&app.store, edit.task_id, &edits).and_then(|_| app.reload())
-            {
-                app.mode = Mode::Edit(EditState {
-                    error: Some(e.to_string()),
-                    ..edit
-                });
-                return Action::Continue;
+            match edit.kind {
+                EditKind::Existing(task_id) => {
+                    let edits = Edits {
+                        title: Some(title),
+                        ..Edits::default()
+                    };
+                    if let Err(e) =
+                        ops::apply_edits(&app.store, task_id, &edits).and_then(|_| app.reload())
+                    {
+                        app.mode = Mode::Edit(EditState {
+                            error: Some(e.to_string()),
+                            ..edit
+                        });
+                    }
+                }
+                EditKind::New { parent } => {
+                    match ops::create_task(
+                        &app.store,
+                        ops::NewTask {
+                            title,
+                            parent,
+                            ..Default::default()
+                        },
+                    ) {
+                        Ok(task) => {
+                            let new_id = task.id;
+                            if app.reload().is_ok() {
+                                if let Some(parent_id) = parent {
+                                    let path = app::identifier_path(parent_id, &app.parent_map);
+                                    app.tree_state.open(path);
+                                }
+                                select_task(app, new_id);
+                            }
+                        }
+                        Err(e) => {
+                            app.mode = Mode::Edit(EditState {
+                                error: Some(e.to_string()),
+                                ..edit
+                            });
+                        }
+                    }
+                }
             }
         }
         KeyCode::Esc => {
-            let Mode::Edit(edit) = app.mode.take() else {
-                unreachable!()
-            };
-            if edit.is_new {
-                let _ = app.store.delete_task(edit.task_id);
-                let _ = app.reload();
-            }
+            app.mode.take();
         }
         _ => {
             edit.error = None;
@@ -729,31 +750,12 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
     Action::Continue
 }
 
-fn create_and_edit_task(app: &mut App, parent: Option<TaskId>) {
-    let placeholder = "New task".to_string();
-    if let Ok(task) = ops::create_task(
-        &app.store,
-        ops::NewTask {
-            title: placeholder,
-            parent,
-            ..Default::default()
-        },
-    ) {
-        let new_id = task.id;
-        if app.reload().is_ok() {
-            if let Some(parent_id) = parent {
-                let path = app::identifier_path(parent_id, &app.parent_map);
-                app.tree_state.open(path);
-            }
-            select_task(app, new_id);
-            app.mode = Mode::Edit(EditState {
-                task_id: new_id,
-                input: Input::new(String::new()),
-                error: None,
-                is_new: true,
-            });
-        }
-    }
+fn edit_new_task(app: &mut App, parent: Option<TaskId>) {
+    app.mode = Mode::Edit(EditState {
+        kind: EditKind::New { parent },
+        input: Input::new(String::new()),
+        error: None,
+    });
 }
 
 fn select_task(app: &mut App, id: TaskId) {
