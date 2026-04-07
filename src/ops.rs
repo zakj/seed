@@ -61,7 +61,7 @@ pub struct NewTask {
 }
 
 pub fn create_task(store: &Store, new: NewTask) -> Result<Task, Error> {
-    let id = store.allocate_id()?;
+    let id = store.next_id();
     let mut task = Task::new(id, new.title);
     task.priority = new.priority.unwrap_or_default();
     task.labels = new.labels.into_iter().collect();
@@ -84,7 +84,7 @@ pub fn create_task(store: &Store, new: NewTask) -> Result<Task, Error> {
         }
     }
 
-    store.write_task(&task)?;
+    store.create_task_file(&task)?;
     Ok(task)
 }
 

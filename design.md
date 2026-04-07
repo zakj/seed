@@ -14,7 +14,6 @@ A task tracker for AI coding agents and humans. Fast, opinionated, simple.
 
 ```
 .seed/
-  config.kdl             // project settings, next_id
   tasks/
     1.kdl                // one file per task
     2.kdl
@@ -30,12 +29,6 @@ different tasks never conflict in version control.
 - Human-readable and editable (comments, multiline strings, clean syntax)
 - Round-trip parsing preserves formatting (kdl-rs)
 - JSON for agent output via `--json` flag — two serde backends, not two architectures
-
-### Config
-
-```kdl
-next-id 8
-```
 
 ## Data Model
 
@@ -95,7 +88,8 @@ other task regardless of tree position.
 ### IDs
 
 Plain sequential integers. `sd show 7` beats `sd show 7f3a9b2c`. IDs are never
-reused; when task 7 is archived, 7 is retired. `next-id` lives in config.
+reused; when task 7 is archived, 7 is retired. The next ID is derived from the
+highest existing filename across tasks/ and archive/.
 
 ## CLI
 

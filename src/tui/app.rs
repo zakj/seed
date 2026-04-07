@@ -163,7 +163,7 @@ impl App {
         Ok(())
     }
 
-    /// Check tasks_dir and config.kdl mtime; reload if changed. Throttled to ~1s.
+    /// Check tasks_dir mtime; reload if changed. Throttled to ~1s.
     pub fn maybe_refresh(&mut self) {
         if self.last_refresh_check.elapsed() < Duration::from_secs(1) {
             return;
