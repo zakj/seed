@@ -42,8 +42,16 @@ fn run_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stderr>>,
     mut app: app::App,
 ) -> Result<(), Error> {
+    // Redraw only when something changed. Drawing every pass rebuilt ~60 frames
+    // a second against a static screen, and each one re-parses the selected
+    // task's description and every log entry — a measurable share of a core
+    // spent displaying nothing new.
+    let mut dirty = true;
     loop {
-        terminal.draw(|frame| ui::draw(frame, &mut app))?;
+        if dirty {
+            terminal.draw(|frame| ui::draw(frame, &mut app))?;
+        }
+        dirty = true;
         match event::handle_events(&mut app)? {
             event::Action::Quit => return Ok(()),
             event::Action::EditDescription(id) => {
@@ -52,8 +60,9 @@ fn run_loop(
                 }
             }
             event::Action::Continue => {}
+            event::Action::Idle => dirty = false,
         }
-        app.maybe_refresh();
+        dirty |= app.maybe_refresh();
     }
 }
 
