@@ -1,1 +1,5 @@
 /target
+/mac/.build
+/mac/.swiftpm
+/mac/Seed.app
+.DS_Store

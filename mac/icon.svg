@@ -1,0 +1,10 @@
+<!-- Full-bleed and square. macOS 26 masks a legacy icns into its own squircle
+     and applies a material to it; artwork inset for the older shadow grid gets
+     scaled up to fill that mask and goes soft. Nothing here renders well on both
+     — a version applying no mask draws this as a square, oversized against its
+     neighbours. See sd #114 for the Icon Composer asset that would fix it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#f4f3ef"/>
+  <circle cx="512" cy="512" r="194" fill="none" stroke="#2b2b2e" stroke-width="39"/>
+  <path d="M512 318a194 194 0 0 0 0 388z" fill="#2b2b2e"/>
+</svg>
