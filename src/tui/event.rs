@@ -18,20 +18,30 @@ use crate::task::{self, Priority, Task, TaskId};
 
 pub enum Action {
     Continue,
+    /// Nothing happened — the poll timed out with no input. Distinct from
+    /// `Continue` so the loop can skip a redraw it has no reason to make.
+    Idle,
     Quit,
     EditDescription(TaskId),
 }
 
 pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
-    // Expire old status messages.
+    // Expire old status messages. The expiry is a visible change with no input
+    // behind it, so it has to be reported as one.
+    let mut expired = false;
     if let Some((_, t)) = &app.status_message
         && t.elapsed() > Duration::from_secs(3)
     {
         app.status_message = None;
+        expired = true;
     }
 
     if !event::poll(Duration::from_millis(16))? {
-        return Ok(Action::Continue);
+        return Ok(if expired {
+            Action::Continue
+        } else {
+            Action::Idle
+        });
     }
 
     // Drain all pending events to prevent scroll wheel events from starving

@@ -167,19 +167,21 @@ impl App {
         Ok(())
     }
 
-    /// Check tasks_dir mtime; reload if changed. Throttled to ~1s.
-    pub fn maybe_refresh(&mut self) {
+    /// Reloads when the tasks directory's mtime moved, throttled to ~1s.
+    /// Returns whether anything changed, so an idle loop knows not to redraw.
+    pub fn maybe_refresh(&mut self) -> bool {
         if self.last_refresh_check.elapsed() < Duration::from_secs(1) {
-            return;
+            return false;
         }
         self.last_refresh_check = Instant::now();
         let current = self.current_mtime();
         if current == self.dir_mtime {
-            return;
+            return false;
         }
         if self.reload().is_ok() {
             self.open_all_parents();
         }
+        true
     }
 
     fn current_mtime(&self) -> Option<SystemTime> {
