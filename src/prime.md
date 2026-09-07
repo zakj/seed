@@ -46,9 +46,12 @@ Example `sd list` output:
 Use `--json` when you need to branch on field values programmatically. Prefer `sd list --json` over looping `sd show` — one call gives you the full task graph.
 
 - `sd show --json` returns an object; `sd list --json` and `sd next --json` return arrays
-- Task fields: `id`, `title`, `status`, `priority`, `description`, `labels`, `parent`, `depends`, `created`, `modified`, `log`, `children`
-- Fields omitted when empty/default: `priority` (normal), `description`, `labels`, `depends`, `log`, `parent`
+- Task fields: `id`, `title`, `status`, `priority`, `description`, `labels`, `parent`, `depends`, `created`, `modified`, `log`, `children`, `archived`
+- Fields omitted when empty/default: `priority` (normal), `description`, `labels`, `depends`, `log`, `parent`, `archived`
 - `children` contains direct child IDs (injected, not stored); resolved deps are stripped from `depends`
+- `archived` is `true` only on tasks living in `archive/`. `sd list` returns them
+  only with `--include-archived`; `sd show` returns one either way, and there
+  `--include-archived` means "include archived *children*"
 - `log` entries: `{ timestamp, message, agent? }`
 
 ## Conventions
