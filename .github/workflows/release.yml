@@ -43,17 +43,46 @@ jobs:
           name: sd-${{ matrix.target }}
           path: sd-*.tar.gz
 
+  # Apple Silicon only, and named after the arch actually built rather than a
+  # hardcoded one: if the runner image ever changes arch the filename tells the
+  # truth, and the assertion below turns it into a failed release instead of a
+  # zip that silently will not launch on the machines it is aimed at.
+  mac-app:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mac-app
+      - run: ./mac/build.sh --release
+      - name: Package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          arch=$(uname -m)
+          test "$arch" = "arm64" || { echo "expected an arm64 runner, got $arch"; exit 1; }
+          lipo -archs mac/Seed.app/Contents/MacOS/sd | grep -qw arm64
+          # ditto, not zip: an .app is a bundle, and zip loses the symlinks and
+          # extended attributes that keep the signature valid.
+          ditto -c -k --sequesterRsrc --keepParent \
+            mac/Seed.app "Seed-${TAG}-${arch}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seed-app
+          path: Seed-*.zip
+
   release:
-    needs: build
+    needs: [build, mac-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-      - run: ls -la sd-*.tar.gz
+      - run: ls -la sd-*.tar.gz Seed-*.zip
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" sd-*.tar.gz --generate-notes
+        run: gh release create "$TAG" sd-*.tar.gz Seed-*.zip --generate-notes

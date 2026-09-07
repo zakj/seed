@@ -21,3 +21,35 @@ jobs:
       - run: cargo clippy -- -D warnings
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run
+
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mac-app
+      - uses: actions/cache@v4
+        with:
+          path: mac/.build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('mac/Package.resolved') }}
+      # Builds the app target as well as the tests, so this is also the check
+      # that the app still compiles for the macOS version it claims to support.
+      - run: swift test
+        working-directory: mac
+      # `swift test` covers the code; this covers the bundle around it — the
+      # Info.plist, the icon, the bundled `sd`, the signature. Nothing else
+      # exercises build.sh, so without this it only breaks at release time.
+      - run: ./mac/build.sh
+      - name: Check the bundle is complete
+        run: |
+          app=mac/Seed.app
+          for f in Contents/MacOS/Seed Contents/MacOS/sd Contents/Info.plist \
+                   Contents/Resources/Seed.icns; do
+            test -e "$app/$f" || { echo "missing $f"; exit 1; }
+          done
+          # The bundled sd has to be the one just built, not a stale copy a
+          # CARGO_TARGET_DIR could have left at the path build.sh copies from.
+          "$app/Contents/MacOS/sd" --version
+          codesign --verify --strict "$app"

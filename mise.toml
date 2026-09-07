@@ -23,4 +23,23 @@ fi
 
 [tasks.check]
 description = "Run lint and test (matches CI)"
-depends = ["lint", "test --quiet"]
+depends = ["lint", "test --quiet", "mac:test"]
+
+[tasks."mac:build"]
+description = "Build the macOS app bundle"
+run = "./mac/build.sh"
+
+[tasks."mac:test"]
+description = "Build the macOS app and run the SeedKit tests"
+dir = "mac"
+# `swift test` compiles the app target too, so this covers both the tests and
+# whether the app still builds. Skipped rather than failed off macOS, so `check`
+# can depend on it wherever it runs.
+run = """
+#!/usr/bin/env bash
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "mac:test - skipped, the app builds only on macOS"
+  exit 0
+fi
+swift test
+"""
