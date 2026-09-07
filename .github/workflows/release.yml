@@ -25,7 +25,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -38,7 +38,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           TARGET: ${{ matrix.target }}
         run: tar czf sd-${TAG}-${TARGET}.tar.gz -C target/${TARGET}/release sd
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: sd-${{ matrix.target }}
           path: sd-*.tar.gz
@@ -50,7 +50,7 @@ jobs:
   mac-app:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -67,7 +67,7 @@ jobs:
           # extended attributes that keep the signature valid.
           ditto -c -k --sequesterRsrc --keepParent \
             mac/Seed.app "Seed-${TAG}-${arch}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: seed-app
           path: Seed-*.zip
@@ -76,7 +76,10 @@ jobs:
     needs: [build, mac-app]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      # Held at v5 deliberately: v8 stops unzipping unconditionally and
+      # decides by Content-Type, which is the one change that could bite a
+      # release whose asset is itself a .zip.
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
       - run: ls -la sd-*.tar.gz Seed-*.zip
