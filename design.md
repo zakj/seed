@@ -179,6 +179,22 @@ via hooks/scripts.
 Currently supports `claude`, which adds a `SessionStart` hook to
 `.claude/settings.local.json`.
 
+The hook tries `PATH` first and falls back to the binary that installed it:
+
+```sh
+sd prime 2>/dev/null || '/path/to/sd' prime
+```
+
+`PATH` first so that an `sd` installed later, or moved between package managers,
+is the one that runs. The fallback is what a GUI-only user has — the copy inside
+Seed.app is the only `sd` on their machine, and nothing put it on `PATH`. Claude
+Code reports a hook it cannot run to a debug log and nowhere else, so a hook
+naming an `sd` that is not there costs the agent its guide with nothing on screen
+to say so. Re-installing replaces a hook holding either of the two commands `sd`
+itself writes, rather than adding a second one beside a broken first. Any other
+hook that reaches `sd prime` was written by a person and carries the rest of
+their line with it, so it is left where it is.
+
 ## Sync (planned)
 
 External system integration (GitHub Issues, Linear, Jira). Planned architecture:

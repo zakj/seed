@@ -38,6 +38,9 @@ This adds a `SessionStart` hook to `.claude/settings.local.json` so that agents
 are primed with sd context at the start of each session. Restart Claude Code
 after installing for the hook to take effect.
 
+The hook runs whichever `sd` is on `PATH`, falling back to the one that installed
+it, so it keeps working for an agent whose `PATH` does not carry `sd` at all.
+
 ## Details
 
 See [design.md](design.md) for architecture, data model, and CLI reference.
