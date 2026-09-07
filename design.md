@@ -124,7 +124,9 @@ sd tui                           Interactive terminal UI (alias: sd t)
 - `--json` on every command: compact single-line output, stable schema, typed
   values. `sd show` returns an object; `sd list` / `sd next` return arrays of
   full task objects including `children` IDs, so one call gives the full task
-  graph. Resolved deps are stripped so agents don't see false blockers.
+  graph. Resolved deps are stripped so agents don't see false blockers. A task
+  in `archive/` carries `archived: true`, which is the only way a client can
+  tell — an archived task is serialized exactly like any other.
 - `-q` / `--quiet`: output just the ID for scripting
 - Predictable exit codes: 0 success, 1 error, 2 usage (via clap)
 - Errors to stderr, structured as JSON when `--json` is active

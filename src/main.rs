@@ -367,9 +367,8 @@ fn cmd_show(cli: &Cli, id: TaskId, include_archived: bool) -> Result<(), Error> 
     let ctx = ops::load_task_context(&store, id, include_archived)?;
 
     if cli.json {
-        let mut value = serde_json::to_value(&ctx.task)?;
         let ids: Vec<TaskId> = ctx.children.iter().map(|c| c.id).collect();
-        value["children"] = serde_json::to_value(ids)?;
+        let value = task_json(&ctx.task, &ids, ctx.archived);
         println!("{}", serde_json::to_string(&value)?);
     } else {
         let width = terminal_size::terminal_size().map(|(w, _)| w.0 as usize);
@@ -400,7 +399,10 @@ fn cmd_list(
 ) -> Result<(), Error> {
     let store = find_store()?;
     let tasks = store.load_tasks(include_archived)?;
-    let done_ids = ops::resolved_ids(&store, &tasks)?;
+    // Read once: `resolved_ids` would list `archive/` again, and the JSON
+    // branch below needs the same set to mark what came from there.
+    let archived = store.load_archived_ids()?;
+    let done_ids = ops::resolved_with_archived(&tasks, &archived);
 
     let subtree;
     let base = if let Some(root) = id {
@@ -421,7 +423,7 @@ fn cmd_list(
     if cli.json {
         println!(
             "{}",
-            serde_json::to_string(&prepare_json(display, &done_ids, base))?
+            serde_json::to_string(&prepare_json(display, &done_ids, base, &archived))?
         );
     } else {
         print!("{}", format::format_task_list(display, flat, &done_ids));
@@ -578,6 +580,18 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
     Ok(())
 }
 
+/// The envelope a task goes out in: its stored fields plus the two derived keys
+/// no task file holds. Shared so `show` and `list` cannot describe one task two
+/// ways — the schema they promise is the same schema.
+fn task_json(task: &Task, children: &[TaskId], archived: bool) -> serde_json::Value {
+    let mut value = serde_json::to_value(task).unwrap();
+    value["children"] = serde_json::to_value(children).unwrap();
+    if archived {
+        value["archived"] = serde_json::Value::Bool(true);
+    }
+    value
+}
+
 fn cmd_log(cli: &Cli, id: TaskId, message: &str, agent: Option<&str>) -> Result<(), Error> {
     let store = find_store()?;
     let (mut task, mtime) = store.read_task_with_mtime(id)?;
@@ -603,7 +617,8 @@ fn cmd_next(cli: &Cli) -> Result<(), Error> {
             serde_json::to_string(&prepare_json(
                 &result.ready,
                 &result.done_ids,
-                &result.all_tasks
+                &result.all_tasks,
+                &HashSet::new()
             ))?
         );
     } else if result.ready.is_empty() {
@@ -675,6 +690,7 @@ fn prepare_json(
     tasks: &[impl std::borrow::Borrow<Task>],
     done_ids: &HashSet<TaskId>,
     all_tasks: &[Task],
+    archived: &HashSet<TaskId>,
 ) -> Vec<serde_json::Value> {
     let children = ops::children_map(all_tasks);
     let mut tasks: Vec<Task> = tasks
@@ -690,10 +706,8 @@ fn prepare_json(
         .into_iter()
         .map(|t| {
             let id = t.id;
-            let mut v = serde_json::to_value(t).unwrap();
             let child_ids = children.get(&id).map(Vec::as_slice).unwrap_or_default();
-            v["children"] = serde_json::to_value(child_ids).unwrap();
-            v
+            task_json(&t, child_ids, archived.contains(&id))
         })
         .collect()
 }

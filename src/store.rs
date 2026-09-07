@@ -94,15 +94,9 @@ impl Store {
         };
         entries
             .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                e.file_name()
-                    .to_str()?
-                    .strip_suffix(".kdl")?
-                    .parse::<u32>()
-                    .ok()
-            })
+            .filter_map(|e| Self::task_id(&e))
             .max()
-            .unwrap_or(0)
+            .map_or(0, TaskId::as_u32)
     }
 
     pub fn read_task(&self, id: TaskId) -> Result<Task, Error> {
@@ -117,8 +111,7 @@ impl Store {
             }
             Err(e) => return Err(e.into()),
         };
-        let doc: kdl::KdlDocument = content.parse()?;
-        Task::from_kdl(&doc)
+        parse_task(&content)
     }
 
     /// Read a task along with its file's mtime for optimistic concurrency.
@@ -139,16 +132,14 @@ impl Store {
         let mtime = file.metadata()?.modified()?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
-        let doc: kdl::KdlDocument = content.parse()?;
-        let task = Task::from_kdl(&doc)?;
-        Ok((task, mtime))
+        Ok((parse_task(&content)?, mtime))
     }
 
     /// Write a task, but only if the file hasn't been modified since `expected_mtime`.
     pub fn write_task_checked(&self, task: &Task, expected_mtime: SystemTime) -> Result<(), Error> {
         let path = self.task_path(task.id);
         let doc = task.to_kdl();
-        atomic_write(&path, &doc.to_string(), Some((task.id, expected_mtime)))
+        atomic_write(&path, &doc.to_string(), (task.id, expected_mtime))
     }
 
     pub fn ensure_archive_dir(&self) -> Result<(), Error> {
@@ -178,16 +169,27 @@ impl Store {
         Self::load_tasks_from(&self.archive_dir())
     }
 
+    /// Which ids live in `archive/`. A client cannot tell otherwise: an archived
+    /// task is serialized exactly like any other.
     pub fn load_archived_ids(&self) -> Result<HashSet<TaskId>, Error> {
         let entries = match fs::read_dir(self.archive_dir()) {
             Ok(rd) => rd.collect::<Result<Vec<_>, _>>()?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
             Err(e) => return Err(e.into()),
         };
-        Ok(entries
-            .into_iter()
-            .filter_map(|e| e.path().file_stem()?.to_str()?.parse::<TaskId>().ok())
-            .collect())
+        Ok(entries.iter().filter_map(Self::task_id).collect())
+    }
+
+    /// One reading of what a task file is called, so `next_id` and the archive
+    /// scan cannot end up disagreeing about it — an id handed out twice is the
+    /// expensive kind of quiet.
+    fn task_id(entry: &fs::DirEntry) -> Option<TaskId> {
+        entry
+            .file_name()
+            .to_str()?
+            .strip_suffix(".kdl")?
+            .parse()
+            .ok()
     }
 
     fn load_tasks_from(dir: &Path) -> Result<Vec<Task>, Error> {
@@ -199,22 +201,19 @@ impl Store {
         let mut tasks: Vec<Task> = entries
             .into_iter()
             .filter(|entry| entry.path().extension().is_some_and(|e| e == "kdl"))
-            .map(|entry| {
-                let content = fs::read_to_string(entry.path())?;
-                let doc: kdl::KdlDocument = content.parse()?;
-                Task::from_kdl(&doc)
-            })
+            .map(|entry| parse_task(&fs::read_to_string(entry.path())?))
             .collect::<Result<_, _>>()?;
         tasks.sort_by_key(|t| t.id);
         Ok(tasks)
     }
 }
 
-fn atomic_write(
-    path: &Path,
-    content: &str,
-    check: Option<(TaskId, SystemTime)>,
-) -> Result<(), Error> {
+fn parse_task(content: &str) -> Result<Task, Error> {
+    let doc: kdl::KdlDocument = content.parse()?;
+    Task::from_kdl(&doc)
+}
+
+fn atomic_write(path: &Path, content: &str, check: (TaskId, SystemTime)) -> Result<(), Error> {
     let dir = path.parent().expect("task path has parent");
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("tmp");
     let tmp = dir.join(format!(".tmp.{}.{}", stem, std::process::id()));
@@ -222,11 +221,9 @@ fn atomic_write(
     let result = (|| {
         // TOCTOU: mtime check and rename aren't atomic, but acceptable for a
         // single-user CLI—just guards against clobbering concurrent edits.
-        if let Some((task_id, expected_mtime)) = check {
-            let current_mtime = fs::metadata(path)?.modified()?;
-            if current_mtime != expected_mtime {
-                return Err(Error::Conflict(task_id));
-            }
+        let (task_id, expected_mtime) = check;
+        if fs::metadata(path)?.modified()? != expected_mtime {
+            return Err(Error::Conflict(task_id));
         }
         fs::rename(&tmp, path)?;
         Ok(())

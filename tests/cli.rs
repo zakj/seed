@@ -754,6 +754,43 @@ fn archive_moves_resolved_tasks() {
 }
 
 #[test]
+fn archived_tasks_say_so_in_json() {
+    let dir = init_project();
+    for title in ["Done task", "Todo task"] {
+        sd().args(["add", title])
+            .current_dir(dir.path())
+            .assert()
+            .success();
+    }
+    sd().args(["done", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["archive"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let out = sd()
+        .args(["list", "-a", "--json"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let tasks: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+
+    let archived: Vec<_> = tasks
+        .iter()
+        .filter(|t| t["archived"] == serde_json::Value::Bool(true))
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(archived, ["Done task"]);
+    // Omitted rather than false, like every other defaulted field.
+    let live = tasks.iter().find(|t| t["title"] == "Todo task").unwrap();
+    assert!(live.get("archived").is_none());
+}
+
+#[test]
 fn archive_list_hides_archived() {
     let dir = init_project();
     sd().args(["add", "Done task"])
@@ -1340,4 +1377,42 @@ fn json_output_is_compact() {
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
     let lines: Vec<&str> = stdout.trim().lines().collect();
     assert_eq!(lines.len(), 1, "JSON output should be a single line");
+}
+
+fn show_json(dir: &TempDir, id: &str) -> serde_json::Value {
+    let out = sd()
+        .args(["--json", "show", id])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&out).unwrap()
+}
+
+#[test]
+fn show_json_marks_an_archived_task() {
+    let dir = init_project();
+    sd().args(["add", "done and filed away"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["add", "still here"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().args(["done", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    sd().arg("archive")
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // `read_task` falls back to the archive, so without this an archived task
+    // reads exactly like a live one to anything branching on the field.
+    assert_eq!(show_json(&dir, "2").get("archived"), None);
+    assert_eq!(show_json(&dir, "1")["archived"], serde_json::json!(true));
 }

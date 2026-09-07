@@ -31,6 +31,7 @@ pub struct TaskContext {
     pub deps: Vec<Task>,
     pub children: Vec<Task>,
     pub done_ids: HashSet<TaskId>,
+    pub archived: bool,
 }
 
 pub struct ReadyTasks {
@@ -41,13 +42,19 @@ pub struct ReadyTasks {
 
 /// Collect IDs of all resolved tasks, including archived ones.
 pub fn resolved_ids(store: &Store, tasks: &[Task]) -> Result<HashSet<TaskId>, Error> {
+    Ok(resolved_with_archived(tasks, &store.load_archived_ids()?))
+}
+
+/// The same set for a caller that has already read `archive/` and would
+/// otherwise pay for the directory listing twice.
+pub fn resolved_with_archived(tasks: &[Task], archived: &HashSet<TaskId>) -> HashSet<TaskId> {
     let mut ids: HashSet<TaskId> = tasks
         .iter()
         .filter(|t| t.status.is_resolved())
         .map(|t| t.id)
         .collect();
-    ids.extend(store.load_archived_ids()?);
-    Ok(ids)
+    ids.extend(archived);
+    ids
 }
 
 #[derive(Default)]
@@ -240,6 +247,7 @@ pub fn load_task_context(
         deps,
         children,
         done_ids,
+        archived: task_is_archived,
     })
 }
 
