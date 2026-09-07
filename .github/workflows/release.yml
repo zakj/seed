@@ -54,7 +54,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: mac-app
+          shared-key: mac-app
       - run: ./mac/build.sh --release
       - name: Package
         env:
