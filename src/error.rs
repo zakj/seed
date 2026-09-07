@@ -2,6 +2,13 @@ use std::path::PathBuf;
 
 use crate::task::{Status, TaskId};
 
+fn listed(ids: &[TaskId]) -> String {
+    ids.iter()
+        .map(|id| format!("#{id}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("not a seed project (no .seed directory found)")]
@@ -22,10 +29,10 @@ pub enum Error {
     #[error("cycle detected: this would create a circular reference")]
     CycleDetected,
 
-    #[error("unmet dependencies: tasks {0:?} are not done")]
+    #[error("unmet dependencies: {} not done", listed(.0))]
     UnmetDependencies(Vec<TaskId>),
 
-    #[error("incomplete children: tasks {0:?} are not done")]
+    #[error("incomplete children: {} not done", listed(.0))]
     IncompleteChildren(Vec<TaskId>),
 
     #[error("cannot start task {0}: task is {1}")]
