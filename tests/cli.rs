@@ -291,7 +291,7 @@ fn done_with_unmet_deps_fails() {
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicates::str::contains("unmet dependencies"));
+        .stderr(predicates::str::contains("unmet dependencies: #1 not done"));
 }
 
 #[test]
@@ -329,7 +329,9 @@ fn done_blocked_by_incomplete_children() {
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicates::str::contains("incomplete children"));
+        .stderr(predicates::str::contains(
+            "incomplete children: #2 not done",
+        ));
 
     // Force overrides
     sd().args(["done", "1", "--force"])
@@ -1081,7 +1083,7 @@ fn edit_status_done_validates_deps() {
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicates::str::contains("unmet dependencies"));
+        .stderr(predicates::str::contains("unmet dependencies: #1 not done"));
 }
 
 #[test]
@@ -1379,6 +1381,118 @@ fn json_output_is_compact() {
     assert_eq!(lines.len(), 1, "JSON output should be a single line");
 }
 
+fn hook_commands(dir: &TempDir) -> Vec<String> {
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(".claude/settings.local.json")).unwrap(),
+    )
+    .unwrap();
+    settings["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry["hooks"].as_array().unwrap())
+        .map(|hook| hook["command"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn prime_install_falls_back_to_the_binary_that_installed_it() {
+    let dir = init_project();
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let commands = hook_commands(&dir);
+    assert_eq!(commands.len(), 1);
+    // PATH first, so an `sd` the user installs later is the one that runs.
+    assert!(commands[0].starts_with("sd prime"));
+    // A GUI-only user has no `sd` on PATH at all; the fallback is the copy that
+    // wrote the hook, which is the app's own.
+    let binary = assert_cmd::cargo::cargo_bin!("sd");
+    assert!(commands[0].contains(binary.to_str().unwrap()));
+}
+
+#[test]
+fn prime_install_is_idempotent() {
+    let dir = init_project();
+    for _ in 0..2 {
+        sd().args(["prime", "--install", "claude"])
+            .current_dir(dir.path())
+            .assert()
+            .success();
+    }
+    assert_eq!(hook_commands(&dir).len(), 1);
+}
+
+#[test]
+fn prime_install_replaces_a_hook_from_an_older_version() {
+    let dir = init_project();
+    std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    std::fs::write(
+        dir.path().join(".claude/settings.local.json"),
+        r#"{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"sd prime"}]}]}}"#,
+    )
+    .unwrap();
+
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // The bare-PATH hook an older `sd` wrote is the broken one this replaces —
+    // leaving it beside the new one would prime twice and still fail once.
+    let commands = hook_commands(&dir);
+    assert_eq!(commands.len(), 1);
+    assert!(commands[0].contains("||"));
+}
+
+#[test]
+fn prime_install_leaves_other_session_hooks_alone() {
+    let dir = init_project();
+    std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    std::fs::write(
+        dir.path().join(".claude/settings.local.json"),
+        r#"{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"echo hello"}]}]}}"#,
+    )
+    .unwrap();
+
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    let commands = hook_commands(&dir);
+    assert_eq!(commands.len(), 2);
+    assert!(commands.contains(&"echo hello".to_string()));
+}
+
+#[test]
+fn prime_install_leaves_a_hand_written_prime_hook_alone() {
+    let dir = init_project();
+    std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let handwritten = r#"cd "$CLAUDE_PROJECT_DIR" && sd prime"#;
+    std::fs::write(
+        dir.path().join(".claude/settings.local.json"),
+        format!(
+            r#"{{"hooks":{{"SessionStart":[{{"matcher":"","hooks":[{{"type":"command","command":{}}}]}}]}}}}"#,
+            serde_json::to_string(handwritten).unwrap()
+        ),
+    )
+    .unwrap();
+
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Only the two spellings `sd` itself writes are safe to drop. This one
+    // carries a `cd` that replacing the hook wholesale would take with it.
+    let commands = hook_commands(&dir);
+    assert_eq!(commands.len(), 2);
+    assert!(commands.contains(&handwritten.to_string()));
+}
+
 fn show_json(dir: &TempDir, id: &str) -> serde_json::Value {
     let out = sd()
         .args(["--json", "show", id])
@@ -1415,4 +1529,79 @@ fn show_json_marks_an_archived_task() {
     // reads exactly like a live one to anything branching on the field.
     assert_eq!(show_json(&dir, "2").get("archived"), None);
     assert_eq!(show_json(&dir, "1")["archived"], serde_json::json!(true));
+}
+
+#[test]
+fn the_installed_hook_command_runs_without_sd_on_path() {
+    let dir = init_project();
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // The point of the fallback is a machine whose PATH has no `sd` at all —
+    // asserting the shape of the string proves nothing about whether it runs,
+    // and it is the only thing exercising `shell_quote` against a real shell.
+    let command = hook_commands(&dir).remove(0);
+    let out = std::process::Command::new("sh")
+        .args(["-c", &command])
+        .current_dir(dir.path())
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "hook failed: {out:?}");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("# Task Tracking with sd"));
+}
+
+#[test]
+fn prime_install_replaces_the_fallback_hook_an_older_build_wrote() {
+    let dir = init_project();
+    std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    std::fs::write(
+        dir.path().join(".claude/settings.local.json"),
+        r#"{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"sd prime 2>/dev/null || '/gone/bin/sd' prime"}]}]}}"#,
+    )
+    .unwrap();
+
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // The path in the fallback moves when sd does, so the hook this replaces is
+    // never byte-equal to the one being written — the equality check upstream
+    // never sees it, and only `is_prime_hook` can recognise it.
+    let commands = hook_commands(&dir);
+    assert_eq!(commands.len(), 1);
+    assert!(!commands[0].contains("/gone/bin/sd"));
+}
+
+#[test]
+fn prime_install_clears_a_stale_hook_beside_the_current_one() {
+    let dir = init_project();
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+
+    // Someone reinstalls after an older `sd` left its bare hook behind: the
+    // current-format hook is present, so an early return on exact equality
+    // never looks at the stale one and it primes twice forever.
+    let current = hook_commands(&dir).remove(0);
+    std::fs::write(
+        dir.path().join(".claude/settings.local.json"),
+        format!(
+            r#"{{"hooks":{{"SessionStart":[{{"matcher":"","hooks":[{{"type":"command","command":"sd prime"}}]}},{{"matcher":"","hooks":[{{"type":"command","command":{}}}]}}]}}}}"#,
+            serde_json::to_string(&current).unwrap()
+        ),
+    )
+    .unwrap();
+
+    sd().args(["prime", "--install", "claude"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Updated"));
+
+    assert_eq!(hook_commands(&dir), vec![current]);
 }

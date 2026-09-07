@@ -11,6 +11,7 @@ mod tui;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::path::Path;
 
 use chrono::Utc;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -516,29 +517,24 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
         serde_json::from_str(&content)
             .map_err(|e| Error::InvalidConfig(format!("{}: {e}", settings_path.display())))?
     } else {
-        if !claude_dir.exists() {
-            fs::create_dir_all(&claude_dir)?;
-        }
+        fs::create_dir_all(&claude_dir)?;
         serde_json::json!({})
     };
 
-    let hooks = settings
-        .as_object_mut()
-        .ok_or_else(|| {
-            Error::InvalidConfig(format!("{}: expected object", settings_path.display()))
-        })?
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-    let session_start = hooks
-        .as_object_mut()
-        .ok_or_else(|| {
-            Error::InvalidConfig(format!(
-                "{}: \"hooks\" should be an object",
-                settings_path.display()
-            ))
-        })?
-        .entry("SessionStart")
-        .or_insert_with(|| serde_json::json!([]));
+    let hooks = child(
+        &mut settings,
+        "the file",
+        "hooks",
+        serde_json::json!({}),
+        &settings_path,
+    )?;
+    let session_start = child(
+        hooks,
+        "\"hooks\"",
+        "SessionStart",
+        serde_json::json!([]),
+        &settings_path,
+    )?;
     let entries = session_start.as_array_mut().ok_or_else(|| {
         Error::InvalidConfig(format!(
             "{}: \"hooks.SessionStart\" should be an array",
@@ -546,38 +542,109 @@ fn cmd_prime_install(_agent: task::Agent) -> Result<(), Error> {
         ))
     })?;
 
-    let already = entries.iter().any(|entry| {
-        entry
-            .get("hooks")
-            .and_then(|h| h.as_array())
-            .is_some_and(|hooks| {
-                hooks.iter().any(|h| {
-                    h.get("command")
-                        .and_then(|c| c.as_str())
-                        .is_some_and(|c| c == "sd prime")
-                })
-            })
+    let command = prime_hook_command();
+    // One pass, so that "ours already" is a byproduct of the general match
+    // rather than a gate in front of it: an exact-equality early return leaves
+    // a bare hook from an older `sd` sitting beside the current one, priming
+    // twice forever, which is the case this replacement exists to fix.
+    let mut removed: Vec<String> = Vec::new();
+    entries.retain_mut(|entry| {
+        let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) else {
+            return true;
+        };
+        hooks.retain(|hook| {
+            let Some(found) = hook.get("command").and_then(|c| c.as_str()) else {
+                return true;
+            };
+            if is_prime_hook(found) {
+                removed.push(found.trim().to_owned());
+                false
+            } else {
+                true
+            }
+        });
+        !hooks.is_empty()
     });
-    if already {
+
+    if removed == [command.as_str()] {
         println!(
             "sd prime hook already installed in {}",
             settings_path.display()
         );
         return Ok(());
     }
+    let replaced = !removed.is_empty();
 
     entries.push(serde_json::json!({
         "matcher": "",
-        "hooks": [{ "type": "command", "command": "sd prime" }]
+        "hooks": [{ "type": "command", "command": command }]
     }));
 
     fs::write(
         &settings_path,
         serde_json::to_string_pretty(&settings)? + "\n",
     )?;
-    println!("Installed sd prime hook in {}", settings_path.display());
+    let verb = if replaced { "Updated" } else { "Installed" };
+    println!("{verb} sd prime hook in {}", settings_path.display());
     println!("Restart Claude Code for the hook to take effect.");
     Ok(())
+}
+
+/// `PATH` first, so an `sd` installed later — or moved between package managers
+/// — is the one that runs, falling back to the binary that wrote the hook. That
+/// fallback is what a GUI-only user has: the copy inside Seed.app is the only
+/// `sd` on the machine, and nothing put it on `PATH`. Claude Code reports a hook
+/// it cannot run to a debug log and nowhere else, so a hook naming an `sd` that
+/// is not there costs the agent its guide silently.
+fn prime_hook_command() -> String {
+    let Ok(binary) = env::current_exe() else {
+        return PRIME_BARE.to_string();
+    };
+    format!(
+        "{PRIME_FALLBACK}{}{PRIME_SUFFIX}",
+        shell_quote(&binary.to_string_lossy())
+    )
+}
+
+/// The only two commands `sd` writes, shared with `is_prime_hook` so the matcher
+/// cannot fall behind the writer: changing the format here without changing it
+/// there would make a reinstall stop recognising its own hook and add a second
+/// one beside the stale first.
+const PRIME_BARE: &str = "sd prime";
+const PRIME_FALLBACK: &str = "sd prime 2>/dev/null || ";
+const PRIME_SUFFIX: &str = " prime";
+
+/// Single quotes survive everything a path can hold except a single quote, which
+/// has to leave the quoting to be escaped and come back in.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// Only the two spellings `sd` itself has ever written. A hook that reaches
+/// `sd prime` any other way came from a person and carries whatever else they
+/// put on the line, so dropping it to install ours would take that with it.
+fn is_prime_hook(command: &str) -> bool {
+    let command = command.trim();
+    command == PRIME_BARE
+        || (command.starts_with(PRIME_FALLBACK) && command.ends_with(PRIME_SUFFIX))
+}
+
+/// One level of `settings.json`, created empty if it is not there. The nesting
+/// is three deep and the error only differs by which key was not an object.
+fn child<'a>(
+    value: &'a mut serde_json::Value,
+    holder: &str,
+    key: &str,
+    empty: serde_json::Value,
+    path: &Path,
+) -> Result<&'a mut serde_json::Value, Error> {
+    Ok(value
+        .as_object_mut()
+        .ok_or_else(|| {
+            Error::InvalidConfig(format!("{}: {holder} should be an object", path.display()))
+        })?
+        .entry(key.to_owned())
+        .or_insert(empty))
 }
 
 /// The envelope a task goes out in: its stored fields plus the two derived keys
