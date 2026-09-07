@@ -47,7 +47,8 @@ A native SwiftUI app lives in `mac/`. It talks to the same `sd` binary and the
 same `.seed` directory, so it stays in sync with agents working in the terminal.
 
 Download `Seed-<version>-arm64.zip` from
-[Releases](https://github.com/zakj/seed/releases), or build it:
+[Releases](https://github.com/zakj/seed/releases) and drag `Seed.app` to
+`/Applications`. Or build it:
 
 ```sh
 mise run mac:build      # builds mac/Seed.app
@@ -55,12 +56,14 @@ open mac/Seed.app
 ```
 
 The app is signed ad-hoc rather than with a Developer ID, so macOS quarantines
-the download and refuses it on a double-click. Right-click → Open the first
-time, or clear the flag:
+the download and blocks the first launch. Clear the flag:
 
 ```sh
-xattr -d com.apple.quarantine /Applications/Seed.app
+xattr -dr com.apple.quarantine /Applications/Seed.app
 ```
+
+Or without a terminal: try to open it, dismiss the warning, then System Settings
+→ Privacy & Security → Open Anyway, near the bottom of the Security section.
 
 Apple Silicon only. The `sd` binary itself ships for Intel too.
 

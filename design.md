@@ -194,8 +194,7 @@ atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
   target as well as the tests, so one command is also the check that the app
   still builds for the macOS version it claims to support. Off macOS the task
   skips rather than fails, so the same `check` runs anywhere. CI runs it as a
-  second job on a `macos-15` runner — the app's own minimum, so the deployment
-  target is a claim CI tests rather than one the developer's newer SDK hides.
+  second job on macOS.
 - **Writes are serialized**: commands run one at a time, and a reload cancels the
   one before it. `sd` refuses a write whose task file changed since it read it,
   so two overlapping edits lose one silently; and three things ask for a reload
@@ -235,9 +234,15 @@ atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
   with `ditto` because `zip` drops the symlinks and xattrs an `.app` signature
   depends on. Apple Silicon only: shipping one download beats asking a GUI user
   which chip they have, and the CLI tarballs already cover Intel. The signature
-  is ad-hoc, so the download is quarantined and needs one right-click → Open;
-  notarizing it needs a Developer ID, which is a paid account rather than a
-  code change.
+  is ad-hoc, so macOS quarantines the download and blocks the first launch —
+  there has been no right-click → Open bypass since macOS 15, so the README
+  carries the `xattr` override. Notarizing needs a Developer ID, which is a
+  paid account rather than a code change.
+- **The mac jobs run on `macos-26`.** The runner image's Xcode picks the SDK,
+  and an app built against the 15 SDK keeps the old chrome however new the Mac
+  running it is. `Package.swift` still sets the 15.0 deployment target, so the
+  SDK decides the look and not the audience — and availability checking follows
+  the deployment target, so the newer SDK still refuses API 15 cannot call.
 - **Bundled `sd`**: `build.sh` builds the Rust binary and copies it into
   `Seed.app/Contents/MacOS/sd`, so the app and the CLI it shells out to are
   always the same version and a launched app's bare `PATH` never matters. Always
@@ -356,9 +361,9 @@ this one is drawn for 26; a version applying no mask shows it square and
 oversized. The fix is an Icon Composer asset, which needs `actool` and a document
 authored once in the GUI.
 
-The app targets macOS 15. Nothing in it needs macOS 26 — the only thing standing
-between it and macOS 14 is `searchFocused`, which ⌘F uses to put the cursor in
-the search field.
+The app targets macOS 15. Nothing in it calls macOS 26 API — the only thing
+standing between it and macOS 14 is `searchFocused`, which ⌘F uses to put the
+cursor in the search field.
 
 Layout: `SeedKit` holds the model, CLI bridge, markdown parser, and the recent
 repositories, and is unit tested — `Seed` is an executable target, so anything
