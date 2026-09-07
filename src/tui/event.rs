@@ -58,10 +58,7 @@ pub fn handle_events(app: &mut App) -> std::io::Result<Action> {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 handle_key(app, key.code, key.modifiers)
             }
-            Event::Mouse(mouse) => {
-                handle_mouse(app, mouse);
-                Action::Continue
-            }
+            Event::Mouse(mouse) => handle_mouse(app, mouse),
             _ => Action::Continue,
         };
         if !matches!(action, Action::Continue) {
@@ -340,22 +337,19 @@ fn handle_priority_key(app: &mut App, code: KeyCode) -> Action {
 
     app.mode = Mode::Normal(Panel::Tree);
 
-    if let Some(priority) = priority
-        && let Some(task) = app.selected_task()
-    {
-        let id = task.id;
-        let edits = Edits {
-            priority: Some(priority),
-            ..Edits::default()
-        };
-        match ops::apply_edits(&app.store, id, &edits) {
-            Ok((_, true)) => {
-                let _ = app.reload();
-                app.set_status(format!("Priority set to {priority}"));
-            }
-            Ok((_, false)) => app.set_status("Priority unchanged"),
-            Err(e) => app.set_status(e.to_string()),
-        }
+    if let Some(priority) = priority {
+        mutate_task(
+            app,
+            |store, id| {
+                let edits = Edits {
+                    priority: Some(priority),
+                    ..Edits::default()
+                };
+                ops::apply_edits(store, id, &edits)
+            },
+            &format!("Priority set to {priority}"),
+            "Priority unchanged",
+        );
     }
     Action::Continue
 }
@@ -398,15 +392,15 @@ fn handle_tree_nav(app: &mut App, cmd: Command) -> Option<Action> {
             Some(Action::Continue)
         }
         Command::First => {
-            app.tree_state.select_first();
-            app.detail_scroll = 0;
-            app.detail_hscroll = 0;
+            navigate(app, |tree| {
+                tree.select_first();
+            });
             Some(Action::Continue)
         }
         Command::Last => {
-            app.tree_state.select_last();
-            app.detail_scroll = 0;
-            app.detail_hscroll = 0;
+            navigate(app, |tree| {
+                tree.select_last();
+            });
             Some(Action::Continue)
         }
         Command::SearchMode => {
@@ -824,59 +818,41 @@ fn detail_dep_hit(app: &App, row: u16) -> Option<TaskId> {
         .map(|(_, id)| *id)
 }
 
-fn handle_mouse(app: &mut App, mouse: event::MouseEvent) {
-    match mouse.kind {
-        MouseEventKind::Down(_) => match hit_panel(app, mouse.column, mouse.row) {
-            Some(Panel::Detail) => {
-                if let Some(dep_id) = detail_dep_hit(app, mouse.row) {
-                    select_task(app, dep_id);
-                }
-            }
-            Some(Panel::Tree) => {
-                let prev_selected = app.tree_state.selected().to_vec();
-                app.tree_state
-                    .click_at(Position::new(mouse.column, mouse.row));
-                if app.tree_state.selected() != prev_selected {
-                    app.detail_scroll = 0;
-                    app.detail_hscroll = 0;
-                }
-            }
-            None => {}
-        },
-        MouseEventKind::ScrollDown => match hit_panel(app, mouse.column, mouse.row) {
-            Some(Panel::Tree) => {
-                if !tree_content_fits(app) {
-                    app.tree_state.scroll_down(1);
-                }
-            }
-            Some(Panel::Detail) => {
-                app.detail_scroll = app.detail_scroll.saturating_add(1);
-            }
-            None => {}
-        },
-        MouseEventKind::ScrollUp => match hit_panel(app, mouse.column, mouse.row) {
-            Some(Panel::Tree) => {
-                if !tree_content_fits(app) {
-                    app.tree_state.scroll_up(1);
-                }
-            }
-            Some(Panel::Detail) => {
-                app.detail_scroll = app.detail_scroll.saturating_sub(1);
-            }
-            None => {}
-        },
-        MouseEventKind::ScrollRight => {
-            if let Some(Panel::Detail) = hit_panel(app, mouse.column, mouse.row) {
-                app.detail_hscroll = app.detail_hscroll.saturating_add(1);
+fn handle_mouse(app: &mut App, mouse: event::MouseEvent) -> Action {
+    let Some(panel) = hit_panel(app, mouse.column, mouse.row) else {
+        return Action::Continue;
+    };
+    // The detail arms run the same commands the keyboard does, so a wheel and a
+    // key cannot disagree about how far a scroll goes. The tree arms cannot:
+    // they carry the fits-on-screen guard, which no command has.
+    match (mouse.kind, panel) {
+        (MouseEventKind::Down(_), Panel::Detail) => {
+            if let Some(dep_id) = detail_dep_hit(app, mouse.row) {
+                select_task(app, dep_id);
             }
         }
-        MouseEventKind::ScrollLeft => {
-            if let Some(Panel::Detail) = hit_panel(app, mouse.column, mouse.row) {
-                app.detail_hscroll = app.detail_hscroll.saturating_sub(1);
+        (MouseEventKind::Down(_), Panel::Tree) => {
+            navigate(app, |tree| {
+                tree.click_at(Position::new(mouse.column, mouse.row));
+            });
+        }
+        (MouseEventKind::ScrollDown, Panel::Tree) => {
+            if !tree_content_fits(app) {
+                app.tree_state.scroll_down(1);
             }
         }
+        (MouseEventKind::ScrollUp, Panel::Tree) => {
+            if !tree_content_fits(app) {
+                app.tree_state.scroll_up(1);
+            }
+        }
+        (MouseEventKind::ScrollDown, Panel::Detail) => return execute(app, Command::ScrollDown),
+        (MouseEventKind::ScrollUp, Panel::Detail) => return execute(app, Command::ScrollUp),
+        (MouseEventKind::ScrollRight, Panel::Detail) => return execute(app, Command::ScrollRight),
+        (MouseEventKind::ScrollLeft, Panel::Detail) => return execute(app, Command::ScrollLeft),
         _ => {}
     }
+    Action::Continue
 }
 
 #[cfg(test)]
