@@ -321,7 +321,7 @@ pub fn edit_in_editor(original: &str) -> Result<Option<String>, Error> {
 
     let status = std::process::Command::new("sh")
         .arg("-c")
-        .arg(format!("{} \"$1\"", &editor))
+        .arg(format!("{editor} \"$1\""))
         .arg("--")
         .arg(tmpfile.path())
         .status()?;
