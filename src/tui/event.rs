@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 use ratatui::layout::Position;
-use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
+use tui_input::{Input, InputRequest};
 
 use std::collections::HashSet;
 
@@ -618,7 +618,7 @@ fn handle_search_event(app: &mut App, ev: &Event) -> Action {
         _ => {
             if let Some(ref mut search) = app.search {
                 let input = search.input.as_mut().unwrap();
-                input.handle_event(ev);
+                dispatch_input(input, ev);
                 search.query = input.value().to_string();
             }
             let query = app.search.as_ref().unwrap().query.clone();
@@ -744,10 +744,33 @@ fn handle_edit_event(app: &mut App, ev: &Event) -> Action {
         }
         _ => {
             edit.error = None;
-            edit.input.handle_event(ev);
+            dispatch_input(&mut edit.input, ev);
         }
     }
     Action::Continue
+}
+
+// Map the macOS Option chords tui-input leaves unbound under ALT: Opt+Left,
+// Opt+Right, Opt+fn+Delete, and the escape-prefixed Opt+b/f/d that Terminal
+// sends for the same three. tui-input binds these to META, which crossterm
+// doesn't emit on macOS. Opt+Backspace already reaches DeletePrevWord through
+// tui-input's own ALT binding and is deliberately left to it.
+fn dispatch_input(input: &mut Input, ev: &Event) {
+    if let Event::Key(key) = ev
+        && key.modifiers.contains(KeyModifiers::ALT)
+    {
+        let req = match key.code {
+            KeyCode::Char('b') | KeyCode::Left => Some(InputRequest::GoToPrevWord),
+            KeyCode::Char('f') | KeyCode::Right => Some(InputRequest::GoToNextWord),
+            KeyCode::Char('d') | KeyCode::Delete => Some(InputRequest::DeleteNextWord),
+            _ => None,
+        };
+        if let Some(req) = req {
+            input.handle(req);
+            return;
+        }
+    }
+    input.handle_event(ev);
 }
 
 fn edit_new_task(app: &mut App, parent: Option<TaskId>) {
@@ -843,5 +866,53 @@ fn handle_mouse(app: &mut App, mouse: event::MouseEvent) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+
+    fn press(code: KeyCode, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new(code, modifiers))
+    }
+
+    fn after(value: &str, cursor: usize, ev: &Event) -> (String, usize) {
+        let mut input = Input::new(value.to_string()).with_cursor(cursor);
+        dispatch_input(&mut input, ev);
+        (input.value().to_string(), input.visual_cursor())
+    }
+
+    #[test]
+    fn option_chords_move_and_delete_by_word() {
+        let alt = KeyModifiers::ALT;
+        for code in [KeyCode::Left, KeyCode::Char('b')] {
+            assert_eq!(after("one two", 7, &press(code, alt)).1, 4);
+        }
+        for code in [KeyCode::Right, KeyCode::Char('f')] {
+            assert_eq!(after("one two", 0, &press(code, alt)).1, 4);
+        }
+        for code in [KeyCode::Delete, KeyCode::Char('d')] {
+            assert_eq!(after("one two", 0, &press(code, alt)).0, "two");
+        }
+    }
+
+    #[test]
+    fn a_plain_keystroke_still_reaches_the_input() {
+        assert_eq!(
+            after("one", 3, &press(KeyCode::Char('x'), KeyModifiers::NONE)).0,
+            "onex"
+        );
+    }
+
+    #[test]
+    fn option_backspace_is_left_to_tui_input() {
+        // tui-input binds (Backspace, ALT) to DeletePrevWord itself; intercepting
+        // it here would be a second implementation of the same chord.
+        assert_eq!(
+            after("one two", 7, &press(KeyCode::Backspace, KeyModifiers::ALT)).0,
+            "one "
+        );
     }
 }
