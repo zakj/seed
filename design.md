@@ -344,13 +344,33 @@ atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
   handlers while the process runs, because reading one to the end before the
   other deadlocks the moment the other fills its buffer. No thread is parked
   waiting for `sd`.
-- **Markdown**: descriptions are parsed by `apple/swift-markdown` (cmark-gfm)
-  and reduced to a flat block model in `SeedKit/Markdown.swift`, which SwiftUI
-  renders natively. Separate from the Rust IR by necessity, but both sit on a
-  real CommonMark+GFM parser rather than a hand-rolled one. Inline spans become
-  `AttributedString` in `SeedKit`, built from cmark's tree — re-emitting them as
-  markdown source for the renderer to parse again would reinterpret what the
-  first pass had already resolved, so `\*literal\*` came back as emphasis.
+- **Markdown** is rendered by `gonzalezreal/textual`, which lays a description
+  out as one document instead of a view per block. That is what lets a selection
+  span paragraphs and lists: SwiftUI has no shared selection across sibling
+  `Text` views, so a block-per-view renderer can only ever select within one.
+  Selection runs through Textual's own interaction layer and is off by default —
+  SwiftUI's `.textSelection` does not reach it. Its parser is Foundation's, which
+  covers everything the corpus uses and keeps table column alignments the old
+  block model discarded. What it costs: GFM task-list checkboxes render as
+  literal `[ ]`, a raw HTML block renders as its own markup rather than as code,
+  a code fence trades its language badge for syntax highlighting, and an inline
+  code span is a size down with no background rather than body-sized and tinted.
+  A ```` ```math ```` fence is relabelled `latex` before parsing: it would
+  otherwise render through a transitive dependency whose generated bundle
+  accessor traps when its fonts are missing, which they are in a signed `.app`
+  and are not on the machine that built one.
+  Heading sizes are the one thing taken off it: Textual's own scale puts an h1
+  at 33pt, a poster headline in a pane this narrow, so a heading style states
+  size, weight and line spacing, and copies Textual's own block spacing back
+  verbatim — replacing a style replaces its whole body, so the numbers have to
+  be restated to keep the rhythm, and they have to be kept in step by hand.
+  Spacing is otherwise Textual's throughout: 0.8em between body-level blocks,
+  1.6em above a heading and around a table or a rule, with adjacent margins
+  collapsing to the larger edge the way CSS does. Nothing invented locally,
+  because a local value for some block types redefines the unit the others are
+  calibrated against, and the blocks that state no spacing of their own — a
+  code fence asks for nothing below itself, a quote for nothing at all —
+  collapse with it.
 
 The app icon is `icon.svg`, rendered to the checked-in `Seed.icns` by `icon.sh`
 (needs `rsvg-convert`), so a build never depends on either. The artwork is
@@ -365,7 +385,7 @@ The app targets macOS 15. Nothing in it calls macOS 26 API — the only thing
 standing between it and macOS 14 is `searchFocused`, which ⌘F uses to put the
 cursor in the search field.
 
-Layout: `SeedKit` holds the model, CLI bridge, markdown parser, and the recent
+Layout: `SeedKit` holds the model, CLI bridge, and the recent
 repositories, and is unit tested — `Seed` is an executable target, so anything
 worth a test lives in the library. `Seed` is the SwiftUI layer. `mac/build.sh` assembles `Seed.app` —
 there is no `.xcodeproj`; Xcode opens `Package.swift` directly.
@@ -376,17 +396,17 @@ hairlines rather than the boxes `formStyle(.grouped)` draws. Parent and
 blocked-by appear only when set. Three type sizes, no more: 17 for the title, 14
 for prose, and 13 for everything else, where hierarchy is carried by colour —
 secondary for bylines and relations, tertiary for ids. Small text reads as
-decoration rather than as information a developer is meant to use. The one
-exception is 12, for a keyboard shortcut printed inside a control that already
-names itself.
+decoration rather than as information a developer is meant to use. Two things
+sit below 13 for that reason: a keyboard shortcut printed inside a control that
+already names itself, and the "Add" pill on a relation line.
 
 - **Read the description; edit on purpose.** Rendered markdown and an editable
   field cannot be the same view, so one of them has to be what a click does.
   Reading is the common case — agents write most descriptions, people read all of
   them — so the rendered text keeps its selection and its live links, and an
   explicit control swaps in the source with focus. Escape, ⌘E again, or a click
-  elsewhere saves it, the way the title field already behaves. **The draft lives on the window, next to the id of the task it
-  was typed against** — `Workspace.editing`, not a `@State` string in the pane
+  elsewhere saves it, the way the title field already behaves. **The draft lives
+  on the window, next to the id of the task it was typed against** — `Workspace.editing`, not a `@State` string in the pane
   beside a flag. That pairing is what makes "which task has unsaved text" a
   question anything can ask, and every route out of an edit answers it by calling
   one idempotent `commitEditing()`: ⌘E, Escape, a click on empty space, ⌘N, a new
@@ -401,8 +421,8 @@ names itself.
   description rather than in a tooltip — a tooltip covers the words it is
   describing — and that slot is a button in both states, always taking its own
   height, so starting an edit moves nothing below it and the slot never turns
-  from a button into prose. There is no cancel — the editor's own undo covers a mistake before
-  you leave, and the tasks are in version control. Both fields are the same
+  from a button into prose. There is no cancel — the editor's own undo covers a
+  mistake before you leave, and the tasks are in version control. Both fields are the same
   wrapping `NSTextField`, so the editor grows with its text rather than being a
   fixed box: empty, that box was a wall of nothing; long, it was a scroller
   inside a scroller. Taking focus leaves the caret at the end rather than

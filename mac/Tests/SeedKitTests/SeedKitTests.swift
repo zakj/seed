@@ -167,87 +167,6 @@ private func task(
     #expect(graph.tasks.filter(graph.isNext).map(\.id) == [2, 4])
 }
 
-private func spans(
-    _ parts: (String, InlinePresentationIntent?)...
-) -> AttributedString {
-    parts.reduce(into: AttributedString()) { result, part in
-        var piece = AttributedString(part.0)
-        piece.inlinePresentationIntent = part.1
-        result += piece
-    }
-}
-
-@Test func parsesBlockStructure() {
-    let blocks = Markdown.parse("""
-    # Title
-
-    Some **bold** text
-    wrapped over lines.
-
-    - one
-      - nested
-    1. first
-
-    > quoted
-    > more
-
-    ```rust
-    fn main() {}
-    ```
-
-    ---
-
-    | A | B |
-    |---|---|
-    | 1 | 2 |
-    """)
-    #expect(blocks == [
-        .heading(level: 1, text: "Title"),
-        .paragraph(spans(("Some ", nil), ("bold", .stronglyEmphasized), (" text wrapped over lines.", nil))),
-        .listItem(indent: 0, marker: .bullet, checked: nil, text: "one"),
-        .listItem(indent: 1, marker: .bullet, checked: nil, text: "nested"),
-        .listItem(indent: 0, marker: .ordered(1), checked: nil, text: "first"),
-        .quote([.paragraph("quoted more")]),
-        .code(language: "rust", text: "fn main() {}"),
-        .rule,
-        .table(header: ["A", "B"], rows: [["1", "2"]]),
-    ])
-}
-
-@Test func parsesTaskListCheckboxes() {
-    #expect(Markdown.parse("- [ ] open\n- [x] closed") == [
-        .listItem(indent: 0, marker: .bullet, checked: false, text: "open"),
-        .listItem(indent: 0, marker: .bullet, checked: true, text: "closed"),
-    ])
-}
-
-@Test func keepsBlockStructureInsideQuotes() {
-    #expect(Markdown.parse("> intro\n>\n> ```\n> fn main() {}\n> ```") == [
-        .quote([
-            .paragraph("intro"),
-            .code(language: nil, text: "fn main() {}"),
-        ])
-    ])
-}
-
-@Test func hardBreakSurvivesButSoftBreakBecomesSpace() {
-    #expect(Markdown.parse("line one  \nline two") == [.paragraph("line one\nline two")])
-    #expect(Markdown.parse("line one\nline two") == [.paragraph("line one line two")])
-}
-
-@Test func codeFenceKeepsRelativeIndentation() {
-    #expect(Markdown.parse("""
-    ```
-      a
-        b
-    ```
-    """) == [.code(language: nil, text: "  a\n    b")])
-}
-
-@Test func unclosedFenceRunsToEnd() {
-    #expect(Markdown.parse("```\nx") == [.code(language: nil, text: "x")])
-}
-
 @Test func keepsValuesStartingWithADashOutOfFlagPosition() {
     #expect(Edit.description("- first\n- second").arguments == ["--description=- first\n- second"])
     #expect(Edit.title("-dashy").arguments == ["--title=-dashy"])
@@ -266,20 +185,6 @@ private func spans(
 
     let plain = Data("error: KDL parse error\n".utf8)
     #expect(SeedCLI.failureMessage(plain) == "error: KDL parse error")
-}
-
-@Test func escapedPunctuationSurvivesToTheRenderer() {
-    #expect(Markdown.parse(#"a \*literal\* b"#) == [.paragraph("a *literal* b")])
-    #expect(Markdown.parse(#"inline \[x\](y)"#) == [.paragraph("inline [x](y)")])
-    #expect(Markdown.parse(#"snake\_case\_name"#) == [.paragraph("snake_case_name")])
-}
-
-@Test func nestedEmphasisKeepsBothIntents() {
-    let blocks = Markdown.parse("**bold *and italic***")
-    #expect(blocks == [.paragraph(spans(
-        ("bold ", .stronglyEmphasized),
-        ("and italic", [.stronglyEmphasized, .emphasized])
-    ))])
 }
 
 // MARK: - Recents
