@@ -86,7 +86,6 @@ struct TaskDetail: View {
 
     @State private var title = ""
     @State private var editingTitle = false
-    @State private var hoveringDescription = false
 
     var body: some View {
         ScrollView {
@@ -262,12 +261,13 @@ struct TaskDetail: View {
         return line
     }
 
-    /// Click to edit: the description renders as markdown until you click into
-    /// it, which is the only way it can be both readable and editable in place.
-    /// Leaving the field saves, the way the title above it does — there is no
-    /// cancel, and the editor's own undo covers a mistake before you leave.
+    /// Reading is the common case — agents write most descriptions, people read
+    /// all of them — so rendered text stays selectable and its links stay live,
+    /// and editing is a deliberate act rather than a click anywhere. Leaving the
+    /// field saves, the way the title above it does — there is no cancel, and the
+    /// editor's own undo covers a mistake before you leave.
     private var description: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             if isEditing {
                 // The same field as the title, so it grows with its text: a
                 // fixed height is a wall of nothing when empty and a scroller
@@ -286,36 +286,28 @@ struct TaskDetail: View {
                     selectsOnFocus: false
                 )
                 .frame(maxWidth: .infinity)
-            } else {
-                rendered
+            } else if let text = task.description, !text.isEmpty {
+                MarkdownView(source: text)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(6)
-                    .background(
-                        hoveringDescription ? Color.primary.opacity(0.04) : .clear,
-                        in: .rect(cornerRadius: 6)
-                    )
-                    .padding(-6)
-                    .contentShape(.rect)
-                    .onHover { hoveringDescription = $0 }
-                    .onTapGesture(perform: beginEditing)
+                    .textSelection(.enabled)
+            } else {
+                // Empty, so there is no text to select and no link to swallow:
+                // the placeholder can still be what starts you writing.
+                Button(action: workspace.beginEditing) {
+                    Text("No description yet.")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+                .pointerStyle(.link)
             }
 
             // Below the description rather than over it, and always taking its
-            // own height: a tooltip covers the words it is describing, and a
-            // line that comes and goes moves the text underneath it.
-            Text(isEditing ? "⌘E, ⎋, or click away to save" : "⌘E or click to edit")
-                .foregroundStyle(.tertiary)
-                .opacity(isEditing || hoveringDescription ? 1 : 0)
-        }
-    }
-
-    @ViewBuilder
-    private var rendered: some View {
-        if let text = task.description, !text.isEmpty {
-            MarkdownView(source: text)
-        } else {
-            Text("No description yet.")
-                .foregroundStyle(.tertiary)
+            // own height: a tooltip covers the words it is describing, and a line
+            // that comes and goes moves the text underneath it. The same control
+            // in both states, so the slot never turns from a button into prose.
+            DescriptionFooter(isEditing: isEditing)
         }
     }
 
@@ -348,10 +340,6 @@ struct TaskDetail: View {
 
     private var draft: Binding<String> {
         Binding(get: { workspace.editing?.draft ?? "" }) { workspace.editing?.draft = $0 }
-    }
-
-    private func beginEditing() {
-        workspace.beginEditing()
     }
 
     private func commitTitle() {
@@ -387,5 +375,95 @@ struct LogRow: View {
                     .textSelection(.enabled)
             }
         }
+    }
+}
+
+/// Its own view so hovering repaints the footer rather than the pane around it:
+/// a `TaskDetail` body pass rebuilds both relation lists and every markdown
+/// document in the log.
+///
+/// Two buttons rather than one whose label changes: pressing Done blurs the
+/// field, which commits and ends the edit before the mouse comes up. One button
+/// would keep its identity across that swap, complete the press, and fire the
+/// reading-state action — reopening the editor it just closed. The shared chrome
+/// hangs off the container, which does survive the swap, so the hover area is
+/// not torn down and rebuilt under a stationary cursor.
+private struct DescriptionFooter: View {
+    @Environment(Workspace.self) private var workspace
+    let isEditing: Bool
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if isEditing {
+                Button(action: workspace.commitEditing) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .imageScale(.small)
+                        Text("Done")
+                        Text("⎋")
+                            .font(.system(size: 12))
+                    }
+                    .padding(.vertical, 8)
+                    .contentShape(.rect)
+                }
+                .accessibilityLabel("Done")
+            } else {
+                Button(action: workspace.beginEditing) {
+                    // Baseline, not centre: the shortcut is a size down, and
+                    // centring floats it above the word it belongs to.
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        EditPencil()
+                            .stroke(style: .init(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+                            .frame(width: 13, height: 13)
+                            // A shape has no baseline of its own, and its bottom
+                            // edge sits the drawing low; this lands its mass on
+                            // the text's baseline instead.
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1.5 }
+                        Text("Edit")
+                        Text("⌘E")
+                            .font(.system(size: 12))
+                    }
+                    // A stroked shape is hit-tested on the stroke itself, and the
+                    // gaps between the three pieces are not hit-tested at all, so
+                    // the target has to be stated. The padding is real, not padded
+                    // back off: hit-testing is clipped to the frame, so a target
+                    // taller than the text costs the space it occupies.
+                    .padding(.vertical, 8)
+                    .contentShape(.rect)
+                }
+                .accessibilityLabel("Edit")
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(hovering ? .secondary : .tertiary)
+        .pointerStyle(.link)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// SF Symbols' `pencil` collapses to a bare diagonal at this size and alpha, and
+/// `square.and.pencil` shrunk to match the text reads as a smudge rather than an
+/// icon. Drawn as an outline, the silhouette carries the shape at 13pt.
+private struct EditPencil: Shape {
+    func path(in rect: CGRect) -> Path {
+        let unit = min(rect.width, rect.height) / 16
+        func at(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * unit, y: rect.minY + y * unit)
+        }
+
+        var path = Path()
+        path.move(to: at(11.4, 2.4))
+        path.addLine(to: at(13.6, 4.6))
+        path.addLine(to: at(5.5, 12.7))
+        path.addLine(to: at(2.6, 13.4))
+        path.addLine(to: at(3.3, 10.5))
+        path.closeSubpath()
+
+        // The ferrule: without it the outline reads as a plain quadrilateral.
+        path.move(to: at(10, 3.8))
+        path.addLine(to: at(12.2, 6))
+        return path
     }
 }

@@ -376,13 +376,16 @@ hairlines rather than the boxes `formStyle(.grouped)` draws. Parent and
 blocked-by appear only when set. Three type sizes, no more: 17 for the title, 14
 for prose, and 13 for everything else, where hierarchy is carried by colour —
 secondary for bylines and relations, tertiary for ids. Small text reads as
-decoration rather than as information a developer is meant to use.
+decoration rather than as information a developer is meant to use. The one
+exception is 12, for a keyboard shortcut printed inside a control that already
+names itself.
 
-- **Click the description to edit it.** Rendered markdown and an editable field
-  cannot be the same view, and a button placed anywhere is a button away from
-  the text it edits. Clicking the rendered description swaps in the source with
-  focus; Escape, ⌘E again, or a click elsewhere saves it, the way the title field
-  already behaves. **The draft lives on the window, next to the id of the task it
+- **Read the description; edit on purpose.** Rendered markdown and an editable
+  field cannot be the same view, so one of them has to be what a click does.
+  Reading is the common case — agents write most descriptions, people read all of
+  them — so the rendered text keeps its selection and its live links, and an
+  explicit control swaps in the source with focus. Escape, ⌘E again, or a click
+  elsewhere saves it, the way the title field already behaves. **The draft lives on the window, next to the id of the task it
   was typed against** — `Workspace.editing`, not a `@State` string in the pane
   beside a flag. That pairing is what makes "which task has unsaved text" a
   question anything can ask, and every route out of an edit answers it by calling
@@ -394,10 +397,11 @@ decoration rather than as information a developer is meant to use.
   whenever the pane was swapped without the mouse, and aimed ⌘E at
   `NSApp.keyWindow`, which is a different window from the workspace's whenever a
   sheet or popover is open. Neither question exists once the draft carries its
-  own id. What each state affords is said in one tertiary line under the
+  own id. What each state affords sits in a tertiary control under the
   description rather than in a tooltip — a tooltip covers the words it is
-  describing — and that line always takes its own height, so neither hovering nor
-  starting an edit moves the text below it. There is no cancel — the editor's own undo covers a mistake before
+  describing — and that slot is a button in both states, always taking its own
+  height, so starting an edit moves nothing below it and the slot never turns
+  from a button into prose. There is no cancel — the editor's own undo covers a mistake before
   you leave, and the tasks are in version control. Both fields are the same
   wrapping `NSTextField`, so the editor grows with its text rather than being a
   fixed box: empty, that box was a wall of nothing; long, it was a scroller
