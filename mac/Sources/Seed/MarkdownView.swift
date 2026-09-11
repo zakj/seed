@@ -1,135 +1,64 @@
-import SeedKit
 import SwiftUI
+import Textual
 
+/// Descriptions and log entries render as one document rather than a view per
+/// block, so a selection spans paragraphs and lists rather than stopping at the
+/// block it started in.
 struct MarkdownView: View {
+    /// A notch above `.body`, which sits at 13pt and reads cramped for long
+    /// descriptions.
+    fileprivate static let bodySize: CGFloat = 14
+
     let source: String
 
     var body: some View {
-        MarkdownBlocks(blocks: Markdown.parse(source))
+        StructuredText(markdown: Self.withoutMathFences(source))
+            .textual.headingStyle(SeedHeadingStyle())
+            // Selection runs through Textual's own interaction layer and is off
+            // by default; SwiftUI's `.textSelection` does not reach it.
+            .textual.textSelection(.enabled)
+            .font(.system(size: Self.bodySize))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
-}
 
-struct MarkdownBlocks: View {
-    /// A notch above `.body`, which sits at 13pt and reads cramped for long
-    /// descriptions. Code spans have to match or the line height jumps.
-    static let bodySize: CGFloat = 14
-
-    let blocks: [MarkdownBlock]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            ForEach(blocks.indices, id: \.self) { index in
-                MarkdownBlockView(block: blocks[index])
-            }
-        }
-        .font(.system(size: Self.bodySize))
+    /// A ```` ```math ```` fence renders through SwiftUIMath, whose generated
+    /// bundle accessor traps rather than degrades when it cannot find its
+    /// fonts — and it cannot from inside the app, because it looks beside
+    /// `Contents` rather than in `Resources`, where a bundle is unsealed
+    /// content that will not codesign. It falls back to a path compiled in
+    /// from the machine that built it, so the crash reaches whoever downloads
+    /// a release and never the person who built it. Relabelled, the LaTeX is
+    /// still legible and nothing loads a font. Goes away with
+    /// https://github.com/gonzalezreal/textual/pull/82, which drops SwiftUIMath
+    /// from the graph entirely unless a `Math` trait is turned on.
+    private static func withoutMathFences(_ source: String) -> String {
+        source.replacingOccurrences(
+            of: "```math", with: "```latex", options: .caseInsensitive
+        )
     }
 }
 
-struct MarkdownBlockView: View {
-    let block: MarkdownBlock
-
-    var body: some View {
-        switch block {
-        case .heading(let level, let text):
-            Text(styled(text))
-                .font(.system(size: headingSize(level), weight: .semibold))
-                .padding(.top, 4)
-
-        case .paragraph(let text):
-            Text(styled(text))
-                .fixedSize(horizontal: false, vertical: true)
-
-        case .listItem(let indent, let marker, let checked, let text):
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                bullet(marker, checked: checked)
-                Text(styled(text))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.leading, CGFloat(indent) * 18)
-
-        case .code(let language, let text):
-            ScrollView(.horizontal) {
-                Text(text)
-                    .font(.system(size: MarkdownBlocks.bodySize - 1, design: .monospaced))
-                    .padding(9)
-            }
-            .background(.fill.quaternary, in: .rect(cornerRadius: 6))
-            .overlay(alignment: .topTrailing) {
-                if let language {
-                    Text(language)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                }
-            }
-
-        case .quote(let nested):
-            HStack(spacing: 9) {
-                Capsule().fill(.tertiary).frame(width: 3)
-                MarkdownBlocks(blocks: nested)
-                    .foregroundStyle(.secondary)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-
-        case .table(let header, let rows):
-            ScrollView(.horizontal) {
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 5) {
-                    GridRow {
-                        ForEach(header.indices, id: \.self) { column in
-                            Text(styled(header[column])).fontWeight(.semibold)
-                        }
-                    }
-                    Divider()
-                    ForEach(rows.indices, id: \.self) { row in
-                        GridRow {
-                            ForEach(rows[row].indices, id: \.self) { column in
-                                Text(styled(rows[row][column]))
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-
-        case .rule:
-            Divider().padding(.vertical, 2)
+/// Textual's own scale puts an h1 at 33pt, a poster headline in a pane this
+/// narrow. Only the size and weight are ours. Replacing a style replaces its
+/// whole body, so the block spacing below is `DefaultHeadingStyle`'s own
+/// numbers restated — the scale every other block is calibrated against must
+/// not move, and nothing keeps this copy in step with upstream but hand.
+private struct SeedHeadingStyle: StructuredText.HeadingStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let level = configuration.headingLevel
+        let size: CGFloat = switch level {
+        case 1: MarkdownView.bodySize + 6
+        case 2: MarkdownView.bodySize + 3
+        default: MarkdownView.bodySize + 1
         }
-    }
 
-    private func headingSize(_ level: Int) -> CGFloat {
-        switch level {
-        case 1: MarkdownBlocks.bodySize + 5
-        case 2: MarkdownBlocks.bodySize + 3
-        default: MarkdownBlocks.bodySize + 1
-        }
-    }
-
-    @ViewBuilder
-    private func bullet(_ marker: MarkdownBlock.ListMarker, checked: Bool?) -> some View {
-        if let checked {
-            Image(systemName: checked ? "checkmark.square.fill" : "square")
-                .foregroundStyle(checked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-        } else {
-            switch marker {
-            case .bullet:
-                Text("•").foregroundStyle(.secondary)
-            case .ordered(let number):
-                Text("\(number).").monospacedDigit().foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// SwiftUI renders emphasis from an AttributedString on its own, but leaves
-    /// code spans looking like body text.
-    private func styled(_ text: AttributedString) -> AttributedString {
-        var result = text
-        for run in text.runs where run.inlinePresentationIntent?.contains(.code) == true {
-            result[run.range].font = .system(size: MarkdownBlocks.bodySize, design: .monospaced)
-            result[run.range].backgroundColor = .secondary.opacity(0.12)
-        }
-        return result
+        configuration.label
+            .textual.fontScale(size / MarkdownView.bodySize)
+            // Against the ambient size rather than the heading's, matching a
+            // paragraph: a heading only wraps in a narrow pane, and when it
+            // does it should not open up more than the prose under it.
+            .textual.lineSpacing(.fontScaled(0.23))
+            .textual.blockSpacing(.fontScaled(top: 1.6, bottom: 0.8))
+            .fontWeight(level == 1 ? .bold : .semibold)
     }
 }

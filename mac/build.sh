@@ -18,9 +18,22 @@ swift build -c "$config"
 app="Seed.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$(swift build -c "$config" --show-bin-path)/Seed" "$app/Contents/MacOS/Seed"
+bin=$(swift build -c "$config" --show-bin-path)
+cp "$bin/Seed" "$app/Contents/MacOS/Seed"
 cp "../target/release/sd" "$app/Contents/MacOS/sd"
 cp Info.plist "$app/Contents/Info.plist"
 cp Seed.icns "$app/Contents/Resources/Seed.icns"
+# A dependency's resources are emitted as a bundle beside the binary and looked
+# up relative to the main bundle, so leaving them behind is silent: Textual's
+# highlighter just stops highlighting inside the app while it still works from
+# the build directory. Globbed rather than named, so a dependency that gains or
+# renames one does not go missing the same way — then the one bundle that is 7MB
+# of dead weight is dropped again. SwiftUIMath resolves its bundle at the app
+# root, beside Contents rather than inside it, so the copy is never read; it
+# falls back to a path compiled in from this checkout, which is why a math fence
+# renders here and would trap anywhere else. Removing by name is the safe
+# direction: a rename ships the weight instead of breaking the build.
+cp -R "$bin"/*.bundle "$app/Contents/Resources/"
+rm -rf "$app/Contents/Resources/swiftui-math_SwiftUIMath.bundle"
 codesign --force --sign - "$app" >/dev/null
 echo "built $PWD/$app"

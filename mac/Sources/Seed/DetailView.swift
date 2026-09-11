@@ -288,8 +288,6 @@ struct TaskDetail: View {
                 .frame(maxWidth: .infinity)
             } else if let text = task.description, !text.isEmpty {
                 MarkdownView(source: text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
             } else {
                 // Empty, so there is no text to select and no link to swallow:
                 // the placeholder can still be what starts you writing.
@@ -372,15 +370,14 @@ struct LogRow: View {
                 }
 
                 MarkdownView(source: entry.message)
-                    .textSelection(.enabled)
             }
         }
     }
 }
 
 /// Its own view so hovering repaints the footer rather than the pane around it:
-/// a `TaskDetail` body pass rebuilds both relation lists and every markdown
-/// document in the log.
+/// a `TaskDetail` body pass walks the graph for both relation lists and rebuilds
+/// their attributed strings.
 ///
 /// Two buttons rather than one whose label changes: pressing Done blurs the
 /// field, which commits and ends the edit before the mouse comes up. One button
@@ -395,7 +392,7 @@ private struct DescriptionFooter: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack {
             if isEditing {
                 Button(action: workspace.commitEditing) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
