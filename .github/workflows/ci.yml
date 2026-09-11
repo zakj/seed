@@ -51,5 +51,12 @@ jobs:
           done
           # The bundled sd has to be the one just built, not a stale copy a
           # CARGO_TARGET_DIR could have left at the path build.sh copies from.
-          "$app/Contents/MacOS/sd" --version
+          # The plist is stamped from that same binary, so holding both against
+          # Cargo.toml catches the stale copy and a bundle shipped without its
+          # stamp with one comparison each.
+          want=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
+          got=$("$app/Contents/MacOS/sd" --version | awk '{print $2}')
+          test "$got" = "$want" || { echo "bundled sd is $got, want $want"; exit 1; }
+          got=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
+          test "$got" = "$want" || { echo "plist says $got, want $want"; exit 1; }
           codesign --verify --strict "$app"

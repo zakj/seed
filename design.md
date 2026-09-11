@@ -238,6 +238,17 @@ atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
   there has been no right-click → Open bypass since macOS 15, so the README
   carries the `xattr` override. Notarizing needs a Developer ID, which is a
   paid account rather than a code change.
+- **The bundle's version is stamped, not checked in.** `build.sh` reads it off
+  the `sd` it just copied in and writes both version keys into the plist, so the
+  app cannot claim a version other than the binary inside it, and a number
+  cargo bumps has only one home. A checked-in one goes stale in silence — the
+  About panel reads these keys, and so would any updater. CI holds the binary
+  and the plist against `Cargo.toml`; the release job holds the plist against
+  the tag, so a tag pushed without the bump fails rather than shipping a
+  download whose name and About panel disagree. The bundle ID is
+  `net.zakj.seed`, the reverse of a domain that is actually owned: it is fixed
+  for good once Apple has it against a Developer ID, so the free moment to get
+  it right is before there is one.
 - **The mac jobs run on `macos-26`.** The runner image's Xcode picks the SDK,
   and an app built against the 15 SDK keeps the old chrome however new the Mac
   running it is. `Package.swift` still sets the 15.0 deployment target, so the

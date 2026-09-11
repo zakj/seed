@@ -22,6 +22,15 @@ bin=$(swift build -c "$config" --show-bin-path)
 cp "$bin/Seed" "$app/Contents/MacOS/Seed"
 cp "../target/release/sd" "$app/Contents/MacOS/sd"
 cp Info.plist "$app/Contents/Info.plist"
+# The two version keys live here rather than in Info.plist: a number checked in
+# beside a version cargo bumps is a number that goes stale, and it goes stale
+# silently — the About panel reads these, and so would any updater. Read back
+# off the binary just bundled, so the bundle cannot claim a version other than
+# the sd inside it. Before codesign: editing the plist after signing breaks the
+# signature.
+version=$("$app/Contents/MacOS/sd" --version | awk '{print $2}')
+plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$version" "$app/Contents/Info.plist"
 cp Seed.icns "$app/Contents/Resources/Seed.icns"
 # A dependency's resources are emitted as a bundle beside the binary and looked
 # up relative to the main bundle, so leaving them behind is silent: Textual's

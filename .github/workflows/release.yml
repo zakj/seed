@@ -63,6 +63,11 @@ jobs:
           arch=$(uname -m)
           test "$arch" = "arm64" || { echo "expected an arm64 runner, got $arch"; exit 1; }
           lipo -archs mac/Seed.app/Contents/MacOS/sd | grep -qw arm64
+          # The zip is named for the tag and the app is stamped from Cargo.toml,
+          # so a tag pushed without the bump ships a download whose name and
+          # About panel disagree.
+          got=$(plutil -extract CFBundleShortVersionString raw mac/Seed.app/Contents/Info.plist)
+          test "v$got" = "$TAG" || { echo "app is $got, tag is $TAG"; exit 1; }
           # ditto, not zip: an .app is a bundle, and zip loses the symlinks and
           # extended attributes that keep the signature valid.
           ditto -c -k --sequesterRsrc --keepParent \
