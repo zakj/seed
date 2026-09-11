@@ -6,9 +6,7 @@ struct SeedCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
     @Environment(\.openWindow) private var openWindow
 
-
     private var task: SeedTask? { workspace?.selectedTask }
-
 
     var body: some Commands {
         fileCommands
@@ -21,12 +19,12 @@ struct SeedCommands: Commands {
     private var fileCommands: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Task") { workspace?.compose() }
-            .keyboardShortcut("n")
-            .disabled(workspace?.showsTasks != true)
+                .keyboardShortcut("n")
+                .disabled(workspace?.showsTasks != true)
 
             Button("New Subtask") { workspace?.compose(parent: task?.id) }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .disabled(task == nil)
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(task == nil)
 
             Divider()
 
@@ -46,10 +44,9 @@ struct SeedCommands: Commands {
 
             Divider()
 
-            // Each item states what it will move, so the choice is a sentence
-            // rather than a duration guessed at blind.
+            // Each item states what it will move.
             Menu("Archive") {
-                ForEach(workspace?.sweeps ?? [], content: sweepButton)
+                ForEach(workspace?.store.sweeps ?? [], content: sweepButton)
             }
             .disabled(nothingToArchive)
         }
@@ -83,7 +80,7 @@ struct SeedCommands: Commands {
         CommandGroup(after: .toolbar) {
             Toggle("Show Archived Tasks", isOn: archivedBinding)
                 .disabled(workspace?.showsTasks != true)
-            Button("Refresh") { workspace?.reload() }
+            Button("Refresh") { workspace?.store.reload() }
                 .keyboardShortcut("r")
                 .disabled(workspace == nil)
             Divider()
@@ -97,7 +94,7 @@ struct SeedCommands: Commands {
     }
 
     private var nothingToArchive: Bool {
-        workspace?.sweeps.allSatisfy { $0.count == 0 } ?? true
+        workspace?.store.sweeps.allSatisfy { $0.count == 0 } ?? true
     }
 
     private func scopeButton(_ scope: Workspace.Scope, index: Int) -> some View {
@@ -107,7 +104,7 @@ struct SeedCommands: Commands {
             .disabled(workspace?.showsTasks != true)
     }
 
-    private func sweepButton(_ sweep: Workspace.Sweep) -> some View {
+    private func sweepButton(_ sweep: Store.Sweep) -> some View {
         Button("\(sweep.name) (\(sweep.count))") { workspace?.sweeping = sweep }
             .disabled(sweep.count == 0)
     }
@@ -120,15 +117,17 @@ struct SeedCommands: Commands {
     /// An empty window takes the repository itself; anything else gets a window of
     /// its own, so opening a second repository never closes the first.
     private func open(_ url: URL) {
-        if let workspace, workspace.repository == nil {
-            workspace.open(url)
+        if let workspace, workspace.store.repository == nil {
+            workspace.store.open(url)
         } else {
             openWindow(value: url)
         }
     }
 
     private var archivedBinding: Binding<Bool> {
-        Binding(get: { workspace?.includeArchived ?? false }) { workspace?.includeArchived = $0 }
+        Binding(
+            get: { workspace?.store.includeArchived ?? false },
+            set: { workspace?.store.includeArchived = $0 })
     }
 }
 

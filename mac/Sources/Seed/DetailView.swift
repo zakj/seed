@@ -22,10 +22,7 @@ struct DetailView: View {
     }
 }
 
-/// A task does not exist until it is named: `sd` has no delete, so creating one
-/// first would leave a dropped task holding an id every time someone changed
-/// their mind. Nothing but the title is offered, because nothing else would have
-/// anywhere to write.
+/// Nothing is written until the title is committed: `sd` has no delete.
 struct TaskComposer: View {
     @Environment(Workspace.self) private var workspace
     let composition: Workspace.Composition
@@ -50,10 +47,8 @@ struct TaskComposer: View {
                 font: WrappingTextField.title,
                 onCommit: commit,
                 onCancel: {
-                    // Emptied before the view goes: the field is still first
-                    // responder here, and a final `controlTextDidEndEditing`
-                    // during teardown would arrive as a commit. An empty title
-                    // is refused by `create`, and `sd` has no delete.
+                    // Emptied first: the field is still first responder, and a
+                    // final end-editing during teardown would arrive as a commit.
                     title = ""
                     workspace.composition = nil
                 },
@@ -71,15 +66,12 @@ struct TaskComposer: View {
         .padding(.vertical, 20)
     }
 
-    /// Nothing typed means nothing happened; anything typed is kept, which is
-    /// what the title field beside it already does.
     private func commit() {
         workspace.create(title: title, parent: composition.parent)
     }
 }
 
-/// Laid out as a document rather than a form: the description is the only part
-/// worth reading at length, so nothing else gets a box or a full-width row.
+/// A document rather than a form: only the description is read at length.
 struct TaskDetail: View {
     @Environment(Workspace.self) private var workspace
     let task: SeedTask
@@ -87,15 +79,9 @@ struct TaskDetail: View {
     @State private var title = ""
     @State private var editingTitle = false
 
-    /// Reading is a document and editing is a form, and they are different
-    /// layouts rather than one layout with a field swapped in. A scroll view
-    /// offers no height along the axis it scrolls, so nothing inside one can
-    /// fill the space that is left — and an editor that cannot be given the
-    /// space that is left has to size itself to its text, which puts the end
-    /// of a long description past the bottom of the window with nothing able
-    /// to scroll to it. Editing drops the scroll view for that reason: the
-    /// header and the footer take what they need, the editor takes the rest
-    /// and scrolls inside itself, and the caret is AppKit's to keep in view.
+    /// Two layouts: reading scrolls the whole pane, editing drops the scroll
+    /// view so the editor can be given the height left under the header and
+    /// scroll inside itself, which is what keeps the caret on screen.
     var body: some View {
         Group {
             if isEditing {
@@ -104,21 +90,23 @@ struct TaskDetail: View {
                 readingLayout
             }
         }
-        .environment(\.openURL, OpenURLAction { url in
-            guard url.scheme == "seed", let id = Int(url.lastPathComponent) else {
-                return .systemAction
+        .environment(
+            \.openURL,
+            OpenURLAction { url in
+                guard url.scheme == "seed", let id = Int(url.lastPathComponent) else {
+                    return .systemAction
+                }
+                workspace.reveal(id)
+                return .handled
             }
-            workspace.reveal(id)
-            return .handled
-        })
+        )
         .onAppear {
             title = task.title
         }
         .onChange(of: task.title) { _, new in
             if !editingTitle { title = new }
         }
-        // The only flush a closing window gets; every other path goes through
-        // a selection change.
+        // The only flush a closing window gets.
         .onDisappear {
             commitTitle()
             workspace.commitEditing()
@@ -146,9 +134,8 @@ struct TaskDetail: View {
         }
     }
 
-    /// The activity log is not shown while editing: it is the one part of the
-    /// pane that is neither the thing being edited nor the context for it, and
-    /// the room it wants is the room the editor is for.
+    /// The activity log is left out while editing; the room it wants is the
+    /// room the editor is for.
     private var editingLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -156,17 +143,11 @@ struct TaskDetail: View {
             Divider()
                 .padding(.vertical, 18)
 
-            // The block is offered the rest of the pane and the editor takes
-            // what its text needs of it, so a long description fills to the
-            // footer and a short one sits under the meta lines where it was
-            // read, with the leftover below them both.
             description
-                .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
-        // Less than the top: the footer carries its own hit-target padding,
-        // and the two together read as a bigger gap than the one above.
+        // Less than the top: the footer carries its own hit-target padding.
         .padding(.bottom, 12)
     }
 
@@ -210,9 +191,8 @@ struct TaskDetail: View {
         .foregroundStyle(.secondary)
     }
 
-    /// Labels drop to a row of their own, whole, when they will not fit beside
-    /// status and priority — they are one run of text, so splitting them across
-    /// two rows would read as two label lists.
+    /// Labels drop to their own row whole; split across two they would read as
+    /// two lists.
     private var controls: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
@@ -254,9 +234,7 @@ struct TaskDetail: View {
         .fixedSize()
     }
 
-    /// One wrapping line each, the way labels read: the pane lists things one
-    /// way rather than two. A task with neither relation shows neither line —
-    /// the menus are how you add the first one.
+    /// A task with neither relation shows neither line; the menus add the first.
     @ViewBuilder
     private var relations: some View {
         let blocks = workspace.graph.blocking(task.id)
@@ -276,8 +254,8 @@ struct TaskDetail: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(run(relation.name, tasks))
 
-            // Dashed rather than another link: the names navigate, and the one
-            // place a click means edit should not look like the ones that don't.
+            // Dashed so the one click that edits does not look like the names,
+            // which navigate.
             Button {
                 workspace.relating = .init(task: task.id, opening: relation)
             } label: {
@@ -296,8 +274,7 @@ struct TaskDetail: View {
         }
     }
 
-    /// Built as one attributed run so the names wrap like a sentence; a stack of
-    /// links would break between them wherever the stack decided to.
+    /// One attributed run so the names wrap like a sentence.
     private func run(_ name: String, _ tasks: [SeedTask]) -> AttributedString {
         var line = AttributedString("\(name) ")
         for (index, task) in tasks.enumerated() {
@@ -309,43 +286,29 @@ struct TaskDetail: View {
         return line
     }
 
-    /// Reading is the common case — agents write most descriptions, people read
-    /// all of them — so rendered text stays selectable and its links stay live,
-    /// and editing is a deliberate act rather than a click anywhere. Leaving the
-    /// field saves, the way the title above it does — there is no cancel, and the
-    /// editor's own undo covers a mistake before you leave.
+    /// Reading is the common case, so rendered text stays selectable with live
+    /// links, and editing is a deliberate act. Leaving the editor saves, the
+    /// way the title field does; the editor's own undo covers a mistake.
     private var description: some View {
         VStack(alignment: .leading, spacing: 4) {
             if isEditing {
-                // Grows to its text and stops at the room the layout has
-                // left, with two lines as its floor: empty it reads as
-                // somewhere to write rather than a wall of nothing, and long
-                // it scrolls inside itself rather than running off the bottom
-                // of the window.
                 ScrollingTextView(
                     text: draft,
                     font: ScrollingTextView.body,
                     onCommit: workspace.commitEditing,
                     onCancel: workspace.commitEditing
                 )
-                .frame(maxWidth: .infinity)
-                // The editor is a region with an extent, and while editing it
-                // has to look like one: text that stops against nothing reads
-                // as clipped by accident. Padded outward so the words stay on
-                // the same left margin as the rendered description they
-                // replace, and so the last line runs under an edge rather
-                // than off one.
-                .background(
-                    .fill.quaternary, in: RoundedRectangle(cornerRadius: 6).inset(by: -8)
-                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.fill.quaternary, in: .rect(cornerRadius: 6))
+                // Pulled out by the text inset, so the words keep the rendered
+                // description's margin and the background reaches the clip edge.
+                .padding(-ScrollingTextView.inset)
                 .overlay(alignment: .topLeading) {
                     if draft.wrappedValue.isEmpty {
                         Text("Describe this task")
                             .font(Font(ScrollingTextView.body))
                             .foregroundStyle(.tertiary)
-                            // The editor behind it carries the label; this is
-                            // the same words a second time to a reader who
-                            // cannot see that it is a watermark.
+                            // The editor already carries the label.
                             .accessibilityHidden(true)
                             .allowsHitTesting(false)
                     }
@@ -353,8 +316,8 @@ struct TaskDetail: View {
             } else if let text = task.description, !text.isEmpty {
                 MarkdownView(source: text)
             } else {
-                // Empty, so there is no text to select and no link to swallow:
-                // the placeholder can still be what starts you writing.
+                // Empty, so there is nothing to select and the placeholder can
+                // be what starts you writing.
                 Button(action: workspace.beginEditing) {
                     Text("No description yet.")
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -365,10 +328,8 @@ struct TaskDetail: View {
                 .pointerStyle(.link)
             }
 
-            // Below the description rather than over it, and always taking its
-            // own height: a tooltip covers the words it is describing, and a line
-            // that comes and goes moves the text underneath it. The same control
-            // in both states, so the slot never turns from a button into prose.
+            // Below the description rather than a tooltip over it, and a button
+            // in both states, so starting an edit moves nothing.
             DescriptionFooter(isEditing: isEditing)
         }
     }
@@ -387,30 +348,28 @@ struct TaskDetail: View {
     }
 
     private var statusBinding: Binding<Status> {
-        Binding(get: { task.status }) { new in
-            workspace.edit(task.id, .status(new))
-        }
+        Binding(get: { task.status }, set: { workspace.store.edit(task.id, .status($0)) })
     }
 
     private var priorityBinding: Binding<Priority> {
-        Binding(get: { task.priority }) { new in
-            workspace.edit(task.id, .priority(new))
-        }
+        Binding(get: { task.priority }, set: { workspace.store.edit(task.id, .priority($0)) })
     }
 
     private var isEditing: Bool { workspace.editing?.id == task.id }
 
     private var draft: Binding<String> {
-        Binding(get: { workspace.editing?.draft ?? "" }) { workspace.editing?.draft = $0 }
+        Binding(get: { workspace.editing?.draft ?? "" }, set: { workspace.editing?.draft = $0 })
     }
 
     private func commitTitle() {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return title = task.title }
+        guard !trimmed.isEmpty else {
+            title = task.title
+            return
+        }
         guard trimmed != task.title else { return }
-        workspace.edit(task.id, .title(trimmed))
+        workspace.store.edit(task.id, .title(trimmed))
     }
-
 }
 
 struct LogRow: View {
@@ -439,18 +398,10 @@ struct LogRow: View {
     }
 }
 
-/// Its own view so hovering repaints the footer rather than the pane around it:
-/// a `TaskDetail` body pass walks the graph for both relation lists and rebuilds
-/// their attributed strings.
-///
-/// Two buttons rather than one whose label changes: pressing Done blurs the
-/// editor, which commits and ends the edit before the mouse comes up, and one
-/// button would keep its identity across that, complete the press, and fire
-/// the reading-state action — reopening the editor it just closed.
-///
-/// Reading and editing are separate layouts, so this whole view is rebuilt on
-/// the way between them either way; the two branches are what make that
-/// harmless rather than what depends on it.
+/// Its own view so hovering repaints the footer, not the pane. Two buttons
+/// rather than one relabelled: pressing Done blurs the editor, which ends the
+/// edit before mouse-up, and one button would then fire the reading-state
+/// action and reopen it.
 private struct DescriptionFooter: View {
     @Environment(Workspace.self) private var workspace
     let isEditing: Bool
@@ -474,25 +425,18 @@ private struct DescriptionFooter: View {
                 .accessibilityLabel("Done")
             } else {
                 Button(action: workspace.beginEditing) {
-                    // Baseline, not centre: the shortcut is a size down, and
-                    // centring floats it above the word it belongs to.
+                    // Baseline, not centre: the shortcut is a size down.
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         EditPencil()
                             .stroke(style: .init(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
                             .frame(width: 13, height: 13)
-                            // A shape has no baseline of its own, and its bottom
-                            // edge sits the drawing low; this lands its mass on
-                            // the text's baseline instead.
+                            // A shape has no baseline; this lands its mass on the text's.
                             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1.5 }
                         Text("Edit")
                         Text("⌘E")
                             .font(.system(size: 12))
                     }
-                    // A stroked shape is hit-tested on the stroke itself, and the
-                    // gaps between the three pieces are not hit-tested at all, so
-                    // the target has to be stated. The padding is real, not padded
-                    // back off: hit-testing is clipped to the frame, so a target
-                    // taller than the text costs the space it occupies.
+                    // Stated because a stroked shape is hit-tested on the stroke alone.
                     .padding(.vertical, 8)
                     .contentShape(.rect)
                 }
@@ -506,9 +450,7 @@ private struct DescriptionFooter: View {
     }
 }
 
-/// SF Symbols' `pencil` collapses to a bare diagonal at this size and alpha, and
-/// `square.and.pencil` shrunk to match the text reads as a smudge rather than an
-/// icon. Drawn as an outline, the silhouette carries the shape at 13pt.
+/// SF Symbols' pencils collapse to a diagonal or a smudge at 13pt and this alpha.
 private struct EditPencil: Shape {
     func path(in rect: CGRect) -> Path {
         let unit = min(rect.width, rect.height) / 16

@@ -55,8 +55,6 @@ public enum Priority: String, Codable, CaseIterable, Identifiable, Sendable {
     public var id: Self { self }
     public var name: String { rawValue.capitalized }
 
-    /// An ordered scale: high and low mirror each other, and critical stacks
-    /// above high.
     public var symbol: String {
         switch self {
         case .critical: "chevron.up.2"
@@ -74,26 +72,14 @@ public enum Priority: String, Codable, CaseIterable, Identifiable, Sendable {
         case .low: 3
         }
     }
-
 }
 
-/// Not `Identifiable`: an id would have to be built from the message, and a
-/// `ForEach` asks for it per entry per body pass — on a task whose log runs to
-/// kilobytes that is the whole log re-allocated to redraw a hover. `Hashable`
-/// lets `ForEach` key on the value itself.
+/// `Hashable` rather than `Identifiable`, so `ForEach` keys on the value
+/// without an id built from the message on every body pass.
 public struct LogEntry: Decodable, Hashable, Sendable {
     public let timestamp: Date
     public let message: String
     public let agent: String?
-
-    private enum CodingKeys: String, CodingKey { case timestamp, message, agent }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        timestamp = try ISO8601.parse(c.decode(String.self, forKey: .timestamp))
-        message = try c.decode(String.self, forKey: .message)
-        agent = try c.decodeIfPresent(String.self, forKey: .agent)
-    }
 }
 
 public struct SeedTask: Decodable, Hashable, Identifiable, Sendable {
@@ -130,8 +116,8 @@ public struct SeedTask: Decodable, Hashable, Identifiable, Sendable {
         parent = try c.decodeIfPresent(Int.self, forKey: .parent)
         depends = try c.decodeIfPresent([Int].self, forKey: .depends) ?? []
         children = try c.decodeIfPresent([Int].self, forKey: .children) ?? []
-        created = try ISO8601.parse(c.decode(String.self, forKey: .created))
-        modified = try ISO8601.parse(c.decode(String.self, forKey: .modified))
+        created = try c.decode(Date.self, forKey: .created)
+        modified = try c.decode(Date.self, forKey: .modified)
         log = try c.decodeIfPresent([LogEntry].self, forKey: .log) ?? []
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
     }
@@ -142,22 +128,25 @@ public struct SeedTask: Decodable, Hashable, Identifiable, Sendable {
     var sortKey: (Int, Int, Int) { (status.rank(blocked: isBlocked), priority.order, id) }
 }
 
-enum ISO8601 {
-    private static let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-    private static let whole = Date.ISO8601FormatStyle()
-
-    /// `sd` writes microsecond precision on timestamps it generates, but whole
+extension JSONDecoder {
+    /// Decodes `sd`'s JSON. Timestamps `sd` writes carry microseconds; whole
     /// seconds survive a hand-edited task file.
-    static func parse(_ text: String) throws -> Date {
-        if let date = try? fractional.parse(text) { return date }
-        return try whole.parse(text)
+    static var seed: JSONDecoder {
+        let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let whole = Date.ISO8601FormatStyle()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            if let date = try? fractional.parse(text) { return date }
+            return try whole.parse(text)
+        }
+        return decoder
     }
 }
 
 extension SeedTask {
     /// The search a person types: case- and diacritic-insensitive, matching an
-    /// id, a title, or a label. The `#` an id may carry is stripped here rather
-    /// than by every caller, which is what had it written out twice.
+    /// id with or without its `#`, a title, or a label.
     public func matches(_ query: String) -> Bool {
         let id = query.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         return String(self.id) == id

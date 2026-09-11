@@ -1,8 +1,7 @@
 import Foundation
 
-/// One drawn line of the tree. The rows are flattened here rather than handed to
-/// `List(children:)` because that owns its own expansion state, and nothing can
-/// open a row the app needs to show.
+/// One drawn line of the tree. Flattened here rather than by `List(children:)`,
+/// which owns its own expansion state.
 public struct OutlineRow: Identifiable, Hashable, Sendable {
     public let task: SeedTask
     public let depth: Int
@@ -23,8 +22,7 @@ public struct OutlineRow: Identifiable, Hashable, Sendable {
 public struct TaskGraph: Sendable {
     public let tasks: [SeedTask]
     public let labels: [String]
-    /// Every task, in the order `sd list` prints them. Stored rather than
-    /// computed: the relations picker asks for it on every keystroke.
+    /// Every task in `sd list` order. Stored: the picker asks on every keystroke.
     public let ordered: [SeedTask]
     private let byID: [Int: SeedTask]
 
@@ -37,8 +35,7 @@ public struct TaskGraph: Sendable {
 
     public subscript(id: Int) -> SeedTask? { byID[id] }
 
-    /// Roots first, each level ordered the way `sd list` orders it. A task whose
-    /// parent was filtered out (archived, say) surfaces as a root.
+    /// Roots first, each level in `sd list` order.
     public func outline(expanded: Set<Int>) -> [OutlineRow] {
         var rows: [OutlineRow] = []
         for root in sorted(roots) {
@@ -58,8 +55,7 @@ public struct TaskGraph: Sendable {
         }
     }
 
-    /// A search says "find this in my tree", so the tasks between a match and
-    /// its root come along dimmed rather than the tree collapsing to a list.
+    /// The tasks between a match and its root come along, marked as context.
     public func outline(matching predicate: (SeedTask) -> Bool) -> [OutlineRow] {
         let matched = Set(tasks.filter(predicate).map(\.id))
         var shown = matched
@@ -86,18 +82,15 @@ public struct TaskGraph: Sendable {
         sorted(tasks.filter { $0.depends.contains(id) })
     }
 
-    /// The tasks this one is waiting on. `blocking(_:)` is the same edge read
-    /// the other way, and both are sorted the way `sd list` sorts.
+    /// The same edge as `blocking(_:)`, read the other way.
     public func blockedBy(_ id: Int) -> [SeedTask] {
         sorted(self[id]?.depends.compactMap { self[$0] } ?? [])
     }
 
-    /// Everything already waiting on this task, however far down the chain —
-    /// depending on any of them would close a loop. Complete over live tasks
-    /// only: `sd` strips resolved dependencies from its JSON, so an edge that
-    /// points at a resolved task is not in the graph the app can see, and a
-    /// chain running through one is invisible here. `validate_dag` reads the
-    /// unstripped store and still refuses such a link.
+    /// Everything waiting on this task, however far down the chain; depending
+    /// on any of them would close a loop. Live tasks only: `sd` strips resolved
+    /// dependencies from its JSON, and `validate_dag` still refuses what is
+    /// invisible here.
     public func dependents(of id: Int) -> Set<Int> {
         var found: Set<Int> = []
         var queue = [id]
@@ -109,8 +102,7 @@ public struct TaskGraph: Sendable {
         return found
     }
 
-    /// Everything this task already waits on, however far down the chain — it
-    /// cannot come to block any of them without closing a loop.
+    /// Everything this task waits on, however far down the chain.
     public func dependencies(of id: Int) -> Set<Int> {
         var found: Set<Int> = []
         var queue = byID[id]?.depends ?? []
@@ -149,8 +141,7 @@ public struct TaskGraph: Sendable {
         tasks.sorted { $0.sortKey < $1.sortKey }
     }
 
-    /// A task whose parent is not in the graph — archived, or filtered out —
-    /// surfaces as a root rather than disappearing with it.
+    /// A task whose parent is not in the graph surfaces as a root.
     private var roots: [SeedTask] {
         tasks.filter { $0.parent.flatMap { byID[$0] } == nil }
     }
@@ -159,23 +150,23 @@ public struct TaskGraph: Sendable {
         sorted(task.children.compactMap { byID[$0] })
     }
 
-    /// What the relations picker may offer, and why it may not. `sd` refuses a
-    /// relation that closes a loop or nests a task inside itself, and offering a
-    /// move it will refuse is worse than not offering it. It also drops a
-    /// dependency on a resolved task, which would make the tick vanish.
+    /// What the picker may offer and why not: `sd` refuses a loop or a task
+    /// nested in itself, and drops a dependency on a resolved task.
     public func candidates(for id: Int, by relation: Relation) -> [Candidate] {
         if relation != .parent, self[id]?.status.isResolved != false { return [] }
 
-        let barred: Set<Int> = switch relation {
-        case .blockedBy: dependents(of: id)
-        case .blocks: dependencies(of: id)
-        case .parent: descendants(of: id)
-        }
-        let reason = switch relation {
-        case .blockedBy: "Already waiting on this one"
-        case .blocks: "This one is already waiting on it"
-        case .parent: "Already inside this one"
-        }
+        let barred: Set<Int> =
+            switch relation {
+            case .blockedBy: dependents(of: id)
+            case .blocks: dependencies(of: id)
+            case .parent: descendants(of: id)
+            }
+        let reason =
+            switch relation {
+            case .blockedBy: "Already waiting on this one"
+            case .blocks: "This one is already waiting on it"
+            case .parent: "Already inside this one"
+            }
 
         return ordered.compactMap { task in
             if task.id == id { return nil }
@@ -184,8 +175,7 @@ public struct TaskGraph: Sendable {
         }
     }
 
-    /// Why the picker has nothing to show, which is the model's answer rather
-    /// than something the view can re-derive from an empty array.
+    /// Why the picker has nothing to show.
     public func emptiness(for id: Int, by relation: Relation) -> String {
         relation != .parent && self[id]?.status.isResolved != false
             ? "A finished task has no dependencies."
@@ -207,8 +197,8 @@ public struct TaskGraph: Sendable {
             && task.children.allSatisfy { byID[$0]?.status.isResolved ?? true }
     }
 
-    /// A scope answers "what can I start", and a parent that cannot be started
-    /// is noise in that answer — so those lists do not nest.
+    /// Smart lists answer "what can I start"; a parent that cannot be started
+    /// is noise there, so they do not nest.
     public func flat(matching predicate: (SeedTask) -> Bool) -> [OutlineRow] {
         sorted(tasks.filter(predicate)).map {
             OutlineRow(task: $0, depth: 0, hasChildren: false)

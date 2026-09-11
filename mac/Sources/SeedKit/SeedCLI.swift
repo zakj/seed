@@ -4,8 +4,7 @@ public struct CLIError: LocalizedError, Sendable {
     public let errorDescription: String?
 }
 
-/// One field of one task. Views name what they want changed; only SeedKit knows
-/// which flag carries it.
+/// One field of one task; only SeedKit knows which flag carries it.
 public enum Edit: Sendable {
     case status(Status)
     case priority(Priority)
@@ -18,9 +17,8 @@ public enum Edit: Sendable {
     /// `nil` unparents.
     case parent(Int?)
 
-    /// `--flag=value` rather than two arguments: a value of its own starting with
-    /// `-` reads as a flag, and a description opening with a bullet list is the
-    /// most ordinary text there is.
+    /// `--flag=value` rather than two arguments: a value starting with `-` would
+    /// read as a flag, and a description often opens with a bullet.
     public var arguments: [String] {
         switch self {
         case .status(let value): ["--status=\(value.rawValue)"]
@@ -35,8 +33,8 @@ public enum Edit: Sendable {
         }
     }
 
-    /// `sd` refuses to close a task with unmet dependencies or open children, and
-    /// `--force` overrides only that.
+    /// `--force` overrides only `sd`'s refusal to close a task with unmet
+    /// dependencies or open children.
     public var forceable: Bool {
         if case .status(.done) = self { return true }
         return false
@@ -44,34 +42,28 @@ public enum Edit: Sendable {
 }
 
 public enum SeedCLI {
-    /// The one command with a positional argument. `--` is what keeps a title
-    /// opening with a dash from being read as a flag, so every option has to
-    /// precede it.
-    /// `Edit.parent` rather than the flag spelled again — but only when there
-    /// is one: `Edit.parent(nil)` is `--no-parent`, which `add` does not take.
+    /// `--` keeps a title opening with a dash from reading as a flag, so every
+    /// option precedes it.
     public static func addArguments(title: String, parent: Int?) -> [String] {
         ["add", "--quiet"] + (parent.map { Edit.parent($0).arguments } ?? []) + ["--", title]
     }
 
-    /// The app ships the `sd` it talks to, so the CLI and the JSON it emits are
-    /// always the same version. The override exists to point at a different build.
+    /// The bundled `sd` unless the override names another build.
     public static func locate(override: String) -> URL? {
         let trimmed = override.trimmingCharacters(in: .whitespaces)
-        // A directory is executable too, and one named here would pass the check
-        // and then fail at `Process.run` with nothing pointing back at Settings.
+        // A directory passes the executable check and fails at `run`.
         var isDirectory: ObjCBool = false
         if !trimmed.isEmpty,
             FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
             !isDirectory.boolValue,
-            FileManager.default.isExecutableFile(atPath: trimmed) {
+            FileManager.default.isExecutableFile(atPath: trimmed)
+        {
             return URL(filePath: trimmed)
         }
         return Bundle.main.url(forAuxiliaryExecutable: "sd")
     }
 
-    /// Windows and the recent list are both keyed by a repository's URL, and a
-    /// trailing slash decides whether two URLs for the same directory compare
-    /// equal.
+    /// A trailing slash decides whether two URLs for one directory compare equal.
     public static func directory(_ url: URL) -> URL {
         URL(filePath: url.path, directoryHint: .isDirectory)
     }
@@ -83,33 +75,32 @@ public enum SeedCLI {
             && isDirectory.boolValue
     }
 
-    /// A folder already carrying Claude Code configuration is one where the
-    /// priming hook is probably wanted.
+    /// Pre-ticks the priming checkbox for a folder already set up for Claude Code.
     public static func hasClaudeConfiguration(_ url: URL) -> Bool {
         [".claude", "CLAUDE.md"].contains {
             FileManager.default.fileExists(atPath: url.appending(path: $0).path)
         }
     }
 
-    public static func run(_ arguments: [String], binary: URL, repository: URL) async throws -> Data {
+    public static func run(_ arguments: [String], binary: URL, repository: URL) async throws -> Data
+    {
         let process = Process()
         process.executableURL = binary
         process.arguments = arguments
         process.currentDirectoryURL = repository
         process.standardInput = FileHandle.nullDevice
 
-        let out = Pipe(), err = Pipe()
+        let out = Pipe()
+        let err = Pipe()
         process.standardOutput = out
         process.standardError = err
 
-        // Before either reader: a reader waits for the child to close its end,
-        // so one started for a process that never launched waits for an end that
-        // will never close — and it does not answer cancellation, so the throw
-        // out of here would hang rather than propagate.
+        // Before either reader: a reader for a process that never launched
+        // waits forever, and it does not answer cancellation.
         try process.run()
 
-        // Both pipes are drained at once: reading one to the end before the
-        // other deadlocks whenever the other fills its buffer.
+        // Both drained at once: reading one to its end first deadlocks when the
+        // other fills its buffer.
         async let stdout = collect(out)
         async let stderr = collect(err)
         await withTaskCancellationHandler {
@@ -117,8 +108,8 @@ public enum SeedCLI {
                 process.terminationHandler = { _ in continuation.resume() }
             }
         } onCancel: {
-            // A cancelled reload otherwise leaves its `sd` running to completion,
-            // and writes queue behind whatever is still in flight.
+            // Otherwise a cancelled reload leaves its `sd` running and writes
+            // queue behind it.
             process.terminate()
         }
 
@@ -133,8 +124,7 @@ public enum SeedCLI {
         return await stdout
     }
 
-    /// Reads until the far end closes. The handler runs serially per handle, so
-    /// the box is only ever touched by one of them at a time.
+    /// Reads until the far end closes. The handler runs serially per handle.
     private static func collect(_ pipe: Pipe) async -> Data {
         final class Box: @unchecked Sendable {
             var data = Data()
@@ -155,9 +145,7 @@ public enum SeedCLI {
         let error: String
     }
 
-    /// In `--json` mode `sd` reports failures as `{"error":…}` on stderr. Which
-    /// commands do that is the envelope's business, not the caller's — anything
-    /// that isn't one falls through as the plain text it already was.
+    /// `--json` failures arrive as `{"error":…}`; anything else is plain text.
     static func failureMessage(_ stderr: Data) -> String {
         if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: stderr) {
             return envelope.error
@@ -166,11 +154,13 @@ public enum SeedCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    public static func list(binary: URL, repository: URL, includeArchived: Bool) async throws -> [SeedTask] {
+    public static func list(binary: URL, repository: URL, includeArchived: Bool) async throws
+        -> [SeedTask]
+    {
         let data = try await run(
             ["list", "--json"] + (includeArchived ? ["--include-archived"] : []),
             binary: binary, repository: repository
         )
-        return try JSONDecoder().decode([SeedTask].self, from: data)
+        return try JSONDecoder.seed.decode([SeedTask].self, from: data)
     }
 }

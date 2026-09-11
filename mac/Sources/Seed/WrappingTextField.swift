@@ -1,9 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// SwiftUI's multi-line `TextField` only wraps while it holds focus; unfocused it
-/// falls back to a single-line cell and clips. A plain wrapping `NSTextField`
-/// behaves the same in both states.
+/// SwiftUI's multi-line `TextField` wraps only while focused; a wrapping
+/// `NSTextField` wraps in both states.
 struct WrappingTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -14,8 +13,7 @@ struct WrappingTextField: NSViewRepresentable {
     var onCancel: (() -> Void)?
     var takesFocus = false
 
-    /// The title face, shared by the composer and the detail pane — they are
-    /// meant to be the same field, which two identical literals only imply.
+    /// The title face, shared by the composer and the detail pane.
     static let title = NSFont.systemFont(
         ofSize: NSFont.preferredFont(forTextStyle: .title2).pointSize,
         weight: .semibold
@@ -43,8 +41,7 @@ struct WrappingTextField: NSViewRepresentable {
         }
     }
 
-    /// `intrinsicContentSize` reports a single line no matter what
-    /// `preferredMaxLayoutWidth` is set to, so measure the cell directly.
+    /// `intrinsicContentSize` reports a single line, so measure the cell directly.
     func sizeThatFits(
         _ proposal: ProposedViewSize, nsView field: NSTextField, context: Context
     ) -> CGSize? {
@@ -59,10 +56,6 @@ struct WrappingTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: WrappingTextField
-        /// Watches for a click outside the field while it is being edited.
-        /// Clicking empty space moves no responder on its own, so the field
-        /// would keep focus and never commit — and a scroll view takes the click
-        /// before anything drawn behind it could.
         private var clicks: Any?
 
         init(_ parent: WrappingTextField) {
@@ -73,24 +66,14 @@ struct WrappingTextField: NSViewRepresentable {
             if let clicks { NSEvent.removeMonitor(clicks) }
         }
 
-        /// Installed for the field's whole life rather than per edit:
-        /// `controlTextDidBeginEditing` announces the first *change*, not focus,
-        /// so a field focused and never typed into had no monitor at all and
-        /// kept focus when you clicked empty space.
+        /// For the field's whole life: `controlTextDidBeginEditing` announces
+        /// the first change, not focus, so a per-edit monitor would miss a field
+        /// focused and never typed into.
         @MainActor
         func watchClicks(around field: NSTextField) {
             guard clicks == nil else { return }
-            // The event is returned untouched, so whatever the click was for
-            // still happens: this only ends the edit on its way past.
-            clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak field] event in
-                guard let field, field.currentEditor() != nil, event.window === field.window else {
-                    return event
-                }
-                let point = field.convert(event.locationInWindow, from: nil)
-                if !field.bounds.contains(point) {
-                    field.window?.makeFirstResponder(nil)
-                }
-                return event
+            clicks = NSEvent.endEditingOnClickOutside(field) { [weak field] in
+                field?.currentEditor() != nil
             }
         }
 
@@ -108,12 +91,12 @@ struct WrappingTextField: NSViewRepresentable {
             parent.onCommit()
         }
 
-        /// A wrapping field editor treats Return as a newline; these are all
-        /// one-line titles, so it ends the edit instead.
+        /// A wrapping field editor treats Return as a newline; here it ends the edit.
         func control(
             _ control: NSControl, textView: NSTextView, doCommandBy selector: Selector
         ) -> Bool {
-            if selector == #selector(NSResponder.cancelOperation(_:)), let cancel = parent.onCancel {
+            if selector == #selector(NSResponder.cancelOperation(_:)), let cancel = parent.onCancel
+            {
                 cancel()
                 return true
             }

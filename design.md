@@ -171,332 +171,169 @@ for key dispatch, footer hints, and help overlay (`?`).
 
 ## Mac App
 
-A native macOS app in `mac/`, built with SwiftUI. It is a client of the CLI, not
-a second implementation: it shells out to `sd --json` for reads and to
-`sd add`/`sd edit` for writes, so validation, DAG checks, ID allocation, and
-atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
+A native macOS app in `mac/`, built with SwiftUI. It is a client of the CLI,
+not a second implementation: it shells out to `sd list --json` for reads and
+to `sd add`, `sd edit` and `sd archive` for writes, so validation, DAG checks,
+ID allocation and atomic writes stay in one place. No FFI, no shared Rust
+code, no daemon.
 
-- **Freshness**: an FSEvents stream watches `.seed`. Because `sd` writes through
-  a temp file and a rename, a directory watch sees every change an agent makes.
-  The stream's latency is the debounce — 150ms, which is what folds the several
-  files one `sd` command touches into one reload. An occluded app gets App
-  Napped, which coalesces that by seconds, so the app also reloads whenever it
-  becomes active. A stream over a path that does not exist is inert rather than
-  refused, so the watch is armed by the first reload that finds a store rather
-  than by whoever opened the window — one rule, instead of every route into a
-  repository having to remember. FSEvents reports a tree against a path rather
-  than an inode, so
-  `tasks/`, an `archive/` that does not exist until the first `sd archive`, and a
-  directory replaced wholesale all arrive on the one watch without re-arming
-  anything. `.seed` rather than the repository: the watch is recursive, and the
-  project around it changes for reasons that are none of ours.
-- **`mise run check` covers both languages.** `swift test` compiles the app
-  target as well as the tests, so one command is also the check that the app
-  still builds for the macOS version it claims to support. Off macOS the task
-  skips rather than fails, so the same `check` runs anywhere. CI runs it as a
-  second job on macOS.
-- **Writes are serialized**: commands run one at a time, and a reload cancels the
-  one before it. `sd` refuses a write whose task file changed since it read it,
-  so two overlapping edits lose one silently; and three things ask for a reload
-  (a command finishing, the watcher, the app coming forward), so an older read
-  can otherwise land after a newer one. A command hands back the task carrying
-  its output, which is how the description editor knows to stay open on failure
-  rather than discarding what was typed.
-- **Values are passed as `--flag=value`**, and `add`'s positional title after
-  `--`. A value of its own that starts with `-` reads as a flag, and a
-  description opening with a bullet list is the most ordinary text there is.
-- **One `Workspace` per window**: the scene is a `WindowGroup(for: URL.self)`
-  keyed by repository, so each window owns its tasks, its watcher, and its
-  reloads, and two repositories can be open at once. Menu commands reach the
-  right one through `focusedSceneValue`. A window opened by `openWindow(value:)`
-  for a repository that is already open focuses that window instead of building
-  a second view of it. That only works for windows whose scene value is set, and
-  a window can adopt a repository three other ways — at launch, on restore, and
-  from the Finder through `onOpenURL` — so it writes the repository back into
-  the scene binding. Without that write-back the everyday Open Recent duplicates
-  a window, and two `Workspace`es on one store defeat the write serialization.
-  Restoration hands a window back without its value, so each window also keeps
-  its repository in `@SceneStorage`. Replacing the `.newItem` command group puts
-  New Task on ⌘N and removes the standard New Window with it; a second window
-  comes from Open Repository… or from opening a folder. Tabs are `NSWindow`'s own,
-  and appear at two windows exactly as they do anywhere else in macOS. The
-  window owns its column visibility so the menu can say whether ⌘B will show or
-  hide the sidebar, and toggling animates the way the toolbar's own button does;
-  ⌘. does the same without earning a second menu item.
-- **The pickers are one idea in one file.** `Pickers.swift` holds both, plus the
-  parts they share — the filter field steps the highlight, the scroll view keeps
-  it visible, a row is drawn as highlighted, and `PickerRow` draws the tick. They had been spelled out
-  twice, and their paddings had already drifted apart.
-- **Distribution is a zip, not an installer.** CI assembles the bundle on every
-  run — `swift test` covers the code, but nothing else exercises `build.sh`, so
-  without that step the Info.plist, the icon, the bundled `sd` and the signature
-  only break at release time. Releases carry `Seed-<tag>-arm64.zip`, packaged
-  with `ditto` because `zip` drops the symlinks and xattrs an `.app` signature
-  depends on. Apple Silicon only: shipping one download beats asking a GUI user
-  which chip they have, and the CLI tarballs already cover Intel. The signature
-  is ad-hoc, so macOS quarantines the download and blocks the first launch —
-  there has been no right-click → Open bypass since macOS 15, so the README
-  carries the `xattr` override. Notarizing needs a Developer ID, which is a
-  paid account rather than a code change.
-- **The bundle's version is stamped, not checked in.** `build.sh` reads it off
-  the `sd` it just copied in and writes both version keys into the plist, so the
-  app cannot claim a version other than the binary inside it, and a number
-  cargo bumps has only one home. A checked-in one goes stale in silence — the
-  About panel reads these keys, and so would any updater. CI holds the binary
-  and the plist against `Cargo.toml`; the release job holds the plist against
-  the tag, so a tag pushed without the bump fails rather than shipping a
-  download whose name and About panel disagree. The bundle ID is
-  `net.zakj.seed`, the reverse of a domain that is actually owned: it is fixed
-  for good once Apple has it against a Developer ID, so the free moment to get
-  it right is before there is one. The repository link under the version is a
-  `Resources/Credits.html` the standard panel picks up on its own, links live —
-  the whole panel is AppKit's, and holding one URL does not earn a replacement.
-- **The mac jobs run on `macos-26`.** The runner image's Xcode picks the SDK,
-  and an app built against the 15 SDK keeps the old chrome however new the Mac
-  running it is. `Package.swift` still sets the 15.0 deployment target, so the
-  SDK decides the look and not the audience — and availability checking follows
-  the deployment target, so the newer SDK still refuses API 15 cannot call.
-- **Bundled `sd`**: `build.sh` builds the Rust binary and copies it into
-  `Seed.app/Contents/MacOS/sd`, so the app and the CLI it shells out to are
-  always the same version and a launched app's bare `PATH` never matters. Always
-  the release build — the app shells out on every reload and every edit, where
-  debug costs ~85ms against ~10ms. A Settings override can point elsewhere.
-- **A dependency is one edge read from both ends.** `sd` stores only what a
-  task waits on, so what it holds up is derived, and both read as one wrapping
-  line of links — the shape labels settled on. Neither line appears when empty:
-  the menus are how a task gets its first relation, which keeps the pane quiet
-  for the tasks that have none. Parent has no line of its own; the tree carries
-  it, and a search no longer flattens the tree.
-- **One picker serves blockers, blocked-by and parent**, the labels popover
-  pointed at tasks. It dims what `sd` would refuse — a task already waiting on
-  this one, one it already waits on, or a descendant — rather than offering a
-  move and reporting the failure afterwards. Resolved tasks are left out of both
-  dependency lists: `sd` drops a dependency once it is met, so the tick would
-  vanish on the next reload. It is a sheet because the menu bar opens it too, and a
-  menu item has nothing to anchor a popover to.
-- **The three relations are segments of that one picker**, not three commands.
-  They ask the same question of the same list of tasks, and the one you want is
-  usually not the one you chose on the way in — so the segments switch between
-  them without closing anything, keeping the filter and, when the task appears
-  in both lists, the highlight. That collapses a three-item submenu to a single
-  `Relations…` on ⌘⇧R, which is also the answer to a task with no relation yet:
-  the pane shows a line only once there is something to show, so before that the
-  menu is the whole affordance. ⌘⇧[ and ⌘⇧] move between segments, since focus
-  belongs to the filter field and a segmented control is not in the tab order.
-  The sheet is headed with the task rather than the relation — the segments name
-  the relation, and a sheet that never says what it is about is worse for it.
-- **A new task is named in the detail pane**, not in a sheet: the pane already
-  edits titles inline, and a modal collecting one string was the first thing a
-  new user met. Nothing is written until the title is committed — `sd` has no
-  delete, so creating first would leave a dropped task holding an id every time
-  someone changed their mind. Return creates, Escape discards, and leaving the
-  field keeps whatever was typed and discards an empty one, which is the rule
-  the title field beside it already follows. Only the title is offered, because
-  nothing else would have anywhere to write yet.
-- **A folder with no `.seed` is a state, not a failure.** It offers to run the
-  two commands the CLI would: `sd init`, then — only if the folder already
-  carries `.claude` or `CLAUDE.md`, which is what pre-ticks the box —
-  `sd prime --install claude`. Priming needs a store to write beside, so the
-  order is fixed, and a priming failure is reported without undoing the
-  repository. Nothing here arms the watcher: the reload that follows any command
-  does that, which is also what picks up an `sd init` run in a terminal while the
-  window sits on this pane.
-- **Everything is reachable from the keyboard.** ⌘F focuses the search field,
-  ⌘1–⌘4 pick the four smart lists in the order the sidebar shows them, ⌘E starts
-  and ends a description edit, ⌘⇧R opens the relations picker, and the labels
-  popover has a menu item. The two that had no keyboard path — labels and the
-  description — needed their state to move onto the window, since a menu item
-  has no view to reach into. Copying an id is the third: it used to answer a
-  click with a pill in the dates row and answer ⌘⇧C with nothing, which is why
-  the shortcut read as not existing. One `copyID` on the workspace now raises
-  one confirmation, so the two routes cannot look different.
-- **The confirmation is the window's, not the pane's.** An id can be copied from
-  a row's context menu while you are reading the list, so the acknowledgement
-  sits at the bottom of the window rather than beside the id — and an overlay
-  takes no part in layout, which retires the constraint the old pill worked
-  under (it had to skip its vertical padding or it would grow the dates row and
-  nudge the pane down). macOS ships no toast, but it ships the parts:
-  `.regularMaterial` follows light and dark, turns opaque under Reduce
-  Transparency and takes vibrancy from what it floats over, and `.tint` follows
-  the accent colour from System Settings — all of which a mixed colour would
-  have to reimplement and would still get wrong in the dark. It is spoken
-  through an accessibility announcement, since nothing moves a cursor to a badge
-  that merely appears, and it carries a token so copying the same id twice reads
-  as two events rather than one.
-- **Archiving is a menu of counted outcomes**, not a duration typed blind: the
-  app already holds every resolved task, so each item says what it will move —
-  `All Completed Tasks (14)`, `Untouched for a Day (9)` — and disables itself at
-  zero. "Untouched" rather than "finished" because `sd archive` compares a
-  task's last change, not when it was resolved. Nothing in the app brings an
-  archived task back, so each runs behind a confirmation. `sd list -a` marks
-  archived tasks so they are not counted twice.
-- **Recent repositories** are the File menu's `Open Recent`, and their head is
-  also what a window with no repository of its own opens — one list rather than
-  a most-recent path stored separately from the menu.
-- **The tree's expansion is the app's**, not `List(children:)`'s: that owns its
-  own state, and nothing can open a row the app needs to show. `TaskGraph`
-  flattens to `OutlineRow`s against a set of expanded ids, and rows draw their
-  own indent and triangle. Reveal is for selection the app moves — a new
-  subtask, a link in the detail pane — and never for a click, so arrowing
-  through the list cannot unfold it. A search keeps the tree and dims the tasks
-  carried along to show where a match sits — a query means "find this in my
-  tree". The smart lists stay flat: those answer "what can I start", and a
-  parent that cannot be started is noise in that answer. Double-click toggles a row through
-  `contextMenu(forSelectionType:menu:primaryAction:)` on the list, which is also
-  where the row menu lives: routed by the list's own selection, both act on what
-  is selected, and neither competes with it. A tap gesture in the row does — put
-  one there and selection stops working intermittently. A childless row draws
-  the triangle invisibly, because omitting it makes the row measure differently
-  and a level's titles stop lining up.
-- **Filtering is client-side**: the app always loads the full task list. Passing
-  `--status` to `sd list` would return children whose parents were filtered out,
-  breaking the tree.
-- **Ordering** mirrors `Task::sort_key` — status rank, then priority, then id —
-  so the tree matches `sd list`. `SeedKitTests` pins this.
-- **The CLI is driven asynchronously**: both pipes are drained by readability
-  handlers while the process runs, because reading one to the end before the
-  other deadlocks the moment the other fills its buffer. No thread is parked
-  waiting for `sd`.
-- **Markdown** is rendered by `gonzalezreal/textual`, which lays a description
-  out as one document instead of a view per block. That is what lets a selection
-  span paragraphs and lists: SwiftUI has no shared selection across sibling
-  `Text` views, so a block-per-view renderer can only ever select within one.
-  Selection runs through Textual's own interaction layer and is off by default —
-  SwiftUI's `.textSelection` does not reach it. Its parser is Foundation's, which
-  covers everything the corpus uses and keeps table column alignments the old
-  block model discarded. What it costs: GFM task-list checkboxes render as
-  literal `[ ]`, a raw HTML block renders as its own markup rather than as code,
-  a code fence trades its language badge for syntax highlighting, and an inline
-  code span is a size down with no background rather than body-sized and tinted.
-  A ```` ```math ```` fence is relabelled `latex` before parsing: it would
-  otherwise render through a transitive dependency whose generated bundle
-  accessor traps when its fonts are missing, which they are in a signed `.app`
-  and are not on the machine that built one.
-  Heading sizes are the one thing taken off it: Textual's own scale puts an h1
-  at 33pt, a poster headline in a pane this narrow, so a heading style states
-  size, weight and line spacing, and copies Textual's own block spacing back
-  verbatim — replacing a style replaces its whole body, so the numbers have to
-  be restated to keep the rhythm, and they have to be kept in step by hand.
-  Spacing is otherwise Textual's throughout: 0.8em between body-level blocks,
-  1.6em above a heading and around a table or a rule, with adjacent margins
-  collapsing to the larger edge the way CSS does. Nothing invented locally,
-  because a local value for some block types redefines the unit the others are
-  calibrated against, and the blocks that state no spacing of their own — a
-  code fence asks for nothing below itself, a quote for nothing at all —
-  collapse with it.
+### Layout
 
-The app icon is `icon.svg`, rendered to the checked-in `Seed.icns` by `icon.sh`
-(needs `rsvg-convert`), so a build never depends on either. The artwork is
-full-bleed and square: macOS 26 masks a legacy `.icns` into its own squircle and
-applies a material to it, and art inset for the older shadow grid gets scaled up
-to fill that mask and goes visibly soft. No legacy icon renders well on both, so
-this one is drawn for 26; a version applying no mask shows it square and
-oversized. The fix is an Icon Composer asset, which needs `actool` and a document
-authored once in the GUI.
+- `SeedKit` is the library: the model (`Task`, `TaskTree`, `Relation`), the
+  CLI bridge (`SeedCLI`), the `Store` that owns one repository's tasks, its
+  FSEvents watch and its command queue, and `Recents`. Everything worth a test
+  lives here; `SeedKitTests` covers it, the queue included, against a stand-in
+  `sd`.
+- `Seed` is the SwiftUI layer. `Workspace` is one window's UI state
+  (selection, expansion, search, the description draft) over one `Store`, and
+  views reach the store as `workspace.store`. There is no `.xcodeproj`; Xcode
+  opens `Package.swift`.
+- `build.sh` assembles `Seed.app`. The release `sd` is bundled at
+  `Contents/MacOS/sd` and both plist version keys are stamped from it, so the
+  app and the CLI it runs are always one version. `defaults write
+  net.zakj.seed seedBinaryPath <path>` points a build at another `sd`; there
+  is no UI for it.
+- `swift format` is the formatter and the linter (`mac/.swift-format`: 4-space
+  indent, 100 columns). `mise run check` runs it, the Swift tests and the Rust
+  side; the Swift tasks skip off macOS so `check` runs anywhere.
 
-The app targets macOS 15. Nothing in it calls macOS 26 API — the only thing
-standing between it and macOS 14 is `searchFocused`, which ⌘F uses to put the
-cursor in the search field.
+### Data flow
 
-Layout: `SeedKit` holds the model, CLI bridge, and the recent
-repositories, and is unit tested — `Seed` is an executable target, so anything
-worth a test lives in the library. `Seed` is the SwiftUI layer. `mac/build.sh` assembles `Seed.app` —
-there is no `.xcodeproj`; Xcode opens `Package.swift` directly.
+- **Reads reload everything.** Every change reloads the full list and filters
+  client-side; `--status` on `sd list` would drop children whose parents were
+  filtered out and break the tree. A reload is about 10 ms on this repository.
+- **Freshness.** An FSEvents stream on `.seed` (not the repository, since the
+  watch is recursive) sees every write, because `sd` writes through a temp
+  file and a rename. Its 150 ms latency folds one command's several files
+  into one reload. The stream is armed by the first reload that finds a
+  `.seed`, since a stream over a missing path is inert, and the app also
+  reloads on activation because App Nap coalesces the watcher by seconds.
+- **Writes are serialized** through one task chain: `sd` refuses a write whose
+  file changed since it read it, so overlapping edits would fail the second.
+  A command's task resolves after the reload it triggers has landed, carrying
+  stdout or nil on failure, which is how the composer and the description
+  editor know whether to close. Reloads cancel their predecessor so an older
+  read cannot land after a newer one. Failures queue for a window-modal alert.
+- **Arguments** go as `--flag=value`, and `add`'s title after `--`: a value
+  starting with `-` reads as a flag, and descriptions often open with a
+  bullet.
+- **Ordering** mirrors `Task::sort_key` (status rank, priority, id) so the
+  tree matches `sd list`; the tests pin it.
 
-The detail pane is a document, not a form: title, a dim line carrying the id and
-dates, then status, priority, and labels in one control strip, separated by
-hairlines rather than the boxes `formStyle(.grouped)` draws. Parent and
-blocked-by appear only when set. Three type sizes, no more: 17 for the title, 14
-for prose, and 13 for everything else, where hierarchy is carried by colour —
-secondary for bylines and relations, tertiary for ids. Small text reads as
-decoration rather than as information a developer is meant to use. Two things
-sit below 13 for that reason: a keyboard shortcut printed inside a control that
-already names itself, and the "Add" pill on a relation line.
+### Windows
 
-- **Read the description; edit on purpose.** Rendered markdown and an editable
-  field cannot be the same view, so one of them has to be what a click does.
-  Reading is the common case — agents write most descriptions, people read all of
-  them — so the rendered text keeps its selection and its live links, and an
-  explicit control swaps in the source with focus. Escape, ⌘E again, or a click
-  elsewhere saves it, the way the title field already behaves. **The draft lives
-  on the window, next to the id of the task it was typed against** — `Workspace.editing`, not a `@State` string in the pane
-  beside a flag. That pairing is what makes "which task has unsaved text" a
-  question anything can ask, and every route out of an edit answers it by calling
-  one idempotent `commitEditing()`: ⌘E, Escape, a click on empty space, ⌘N, a new
-  selection, and the pane being torn down. Some of those arrive twice, and AppKit
-  decides the order — clearing the draft before writing it is what makes the
-  second arrival harmless. Earlier versions gated the commit on a flag that
-  `selection` cleared on its way past, which silently dropped a description
-  whenever the pane was swapped without the mouse, and aimed ⌘E at
-  `NSApp.keyWindow`, which is a different window from the workspace's whenever a
-  sheet or popover is open. Neither question exists once the draft carries its
-  own id. What each state affords sits in a tertiary control under the
-  description rather than in a tooltip — a tooltip covers the words it is
-  describing — and that slot is a button in both states, always taking its own
-  height, so starting an edit moves nothing below it and the slot never turns
-  from a button into prose. There is no cancel — the editor's own undo covers a
-  mistake before you leave, and the tasks are in version control.
+- One `Workspace` and one `Store` per window. The scene is a
+  `WindowGroup(for: URL.self)` keyed by repository, so opening one already
+  showing focuses that window. A window that adopts a repository at launch,
+  on restore or from the Finder writes it back to the scene binding, or
+  `openWindow(value:)` cannot tell and opens a second window onto the same
+  store, defeating the write serialization. `@SceneStorage` keeps the
+  repository across restoration. Menu commands reach the focused window's
+  workspace through `focusedSceneValue`.
+- `.newItem` is replaced, so ⌘N is New Task and there is no New Window; a
+  second window comes from Open Repository or Open Recent. Recents are one
+  list whose head is also what a repository-less window opens.
+- A folder with no `.seed` is a state, not a failure: the pane offers `sd
+  init`, and `sd prime --install claude` when the folder already carries
+  `.claude` or `CLAUDE.md`.
+- One-shot events (reveal a task, show a confirmation, focus search) travel
+  through observable state as `Stamped<Value>`, which is equal only to itself,
+  so setting the same value twice is still a change `onChange` sees.
 
-  **Reading is a document and editing is a form**, and they are two layouts
-  rather than one with a field swapped in. A scroll view offers no height along
-  the axis it scrolls, so nothing inside one can be given the space left over —
-  and an editor that cannot be given it has to size itself to its text, which
-  puts the end of a long description past the bottom of the window with nothing
-  able to scroll there. So editing drops the scroll view: the title and meta
-  lines take what they need, the editor takes the rest and scrolls inside
-  itself, and keeping the caret in view is then AppKit's, which it does
-  completely for a text view that owns its scroller and unreliably for every
-  other arrangement. The editor still grows to its text and stops at the room
-  left, with two lines as its floor so an empty one reads as somewhere to write
-  rather than as a wall of nothing. The
-  activity log is not shown while editing — it is the one part of the pane that
-  is neither the thing being edited nor context for it, and the room it wants
-  is the room the editor is for.
+### Tasks and the tree
 
-  The editor is drawn as a region with an extent, because text that stops
-  against nothing reads as clipped by accident rather than as continuing, and
-  the edge it runs past is faded. Both are AppKit's: the fade is a layer mask
-  on the clip view, since a mask in SwiftUI puts the editor through an
-  offscreen pass on every frame of a scroll, and publishing the edges back out
-  for SwiftUI to draw re-rendered the pane each time one changed. Nothing that
-  changes at scroll frequency is allowed to become SwiftUI state — the editor's
-  measured height is remembered for the same reason, since the layout is re-run
-  dozens of times a second while scrolling and measuring the text again each
-  time is most of a frame.
+- Expansion is the app's, not `List(children:)`'s, which owns its own state
+  and cannot open a row the app needs to show. `TaskGraph` flattens to
+  `OutlineRow`s against a set of expanded ids. `reveal` opens ancestors, and
+  resets scope and search if they hide the task, for selection the app moves
+  (a new subtask, a link); never for a click.
+- Double-click and the row menu go through
+  `contextMenu(forSelectionType:menu:primaryAction:)` on the list; ← and →
+  collapse and expand. Search keeps the tree and dims the rows carried along
+  as context. The smart lists stay flat: a parent that cannot be started is
+  noise in "what can I start".
+- The Task menu and a row's context menu render one `TaskActions`, whose
+  buttons carry their key equivalents; a shortcut inside a context menu is
+  displayed but never registered.
+- A new task is named in the detail pane and nothing is written until
+  Return, because `sd` has no delete. Escape discards.
+- Archiving is a File submenu of counted outcomes ("Untouched for a Week
+  (9)"), each behind a confirmation since nothing in the app unarchives.
+  "Untouched" because `sd archive` compares a task's last change, not when it
+  resolved.
+- Everything is reachable from the keyboard: ⌘F search, ⌘1–⌘4 the smart
+  lists, ⌘E the description, ⌘⇧R relations, ⌘⇧C copy the id, with a
+  confirmation the window shows and announces to VoiceOver.
 
-  Taking focus leaves the caret at the end rather than
-  selecting everything, since a description is usually added to. Clicking empty
-  space moves no responder on its own, and a scroll view takes the click before
-  anything drawn behind it could, so the field watches for a click outside itself
-  and ends the edit — passing the event on untouched, so whatever the click was
-  for still happens. Log entries render as markdown too — agents write them with
-  code spans and lists.
-- **The control strip fits or stacks.** Status and priority are pop-up buttons;
-  labels are text, because they are glanced at far more often than changed.
-  `ViewThatFits` drops the labels to a row of their own, whole, when they will
-  not sit beside the pickers — they read as one run of text, so splitting them
-  would read as two lists. Status and priority render through
-  `Label(_:systemImage:)`: a pop-up button flattens composite content down to
-  its first piece, so a hand-built stack loses either the icon or the text.
-- **Labels are edited in a popover**, fixed at 220 by 200 with a filter field
-  that also creates. A menu of every label in the repository takes both its
-  height and its width from the repository rather than from the task. Creating
-  sits in the list rather than after it, so ↓ reaches it like any other row. The
-  height is fixed rather than fitted to the rows because a popover takes its
-  size when it is presented and never resizes: a height that fit the filtered
-  list would be the height the next filter is stuck with. The filter is cleared
-  as the popover opens, not as the button is clicked — the menu bar opens it
-  too, and by the time the popover itself appears it has already claimed its
-  highlight.
-- **Both pickers are filter-first.** Focus stays in the filter field, so the
-  list below it never sees an arrow key: the field steps a highlight through the
-  rows itself and Return acts on the highlighted one. A narrowed filter keeps
-  the highlight when it survives the cut and takes the first row when it does
-  not, and a click moves it too, so mouse and keyboard leave the same mark. A
-  `List` was the obvious home for this and is the wrong one — it gives selection
-  and arrow keys only to a focused list, offers no hover state, and takes the
-  single click these rows spend on ticking. Because Return belongs to the field,
-  the relations sheet's Done button is a cancel action: Escape closes it.
+### Detail pane
+
+- A document, not a form: title, a dim id-and-dates line, then status,
+  priority and labels in one strip, with labels dropping to their own row
+  whole when the strip will not fit. Three type sizes, 17 for the title, 14
+  for prose and 13 for the rest; hierarchy is carried by colour.
+- Descriptions and log entries render through `gonzalezreal/textual` as one
+  document, which is what lets a selection span paragraphs; SwiftUI has no
+  shared selection across sibling `Text`s. Heading sizes are the one thing
+  overridden, since Textual's h1 is 33pt. A ```` ```math ```` fence is
+  relabelled `latex` before parsing and `build.sh` drops the SwiftUIMath
+  bundle: its bundle accessor traps inside a signed `.app`. Both go away with
+  textual PR 82.
+- Reading is the common case, so the rendered text keeps selection and live
+  links, and editing is a deliberate act: ⌘E or the footer control swaps in
+  an `NSTextView` that fills the pane below the header and scrolls inside
+  itself, the one arrangement AppKit keeps the caret on screen for. The draft
+  lives on the `Workspace` beside the id it was typed for, and every route
+  out (⌘E, Escape, a click elsewhere, ⌘N, a new selection, teardown) calls
+  one idempotent `commitEditing()`. Leaving saves; the editor's undo covers a
+  mistake before that.
+- Relations read as one wrapping line of links each, and a task with none
+  shows none; the menus add the first. One picker sheet serves blocked-by,
+  blocks and parent as segments (⌘⇧[ and ⌘⇧] switch), keeping the filter and
+  highlight. It dims what `sd` would refuse (a loop, a task inside its own
+  descendant) and omits resolved tasks, whose dependency `sd` would strip.
+- Both pickers are filter-first: focus stays in the filter field, which steps
+  the highlight with ↑ and ↓ and activates with Return, so the list needs no
+  focus. The labels popover is fixed at 220 by 200 because a popover takes
+  its size at presentation and never resizes.
+
+### Distribution
+
+- CI runs `swift format lint`, `swift test` and `build.sh` on `macos-26`,
+  then checks the bundle: the files, that the bundled `sd` and the plist agree
+  with `Cargo.toml`, and the signature. The release job zips the app with
+  `ditto` (plain `zip` drops the xattrs the signature depends on), checks the
+  plist against the tag, and ships `Seed-<tag>-arm64.zip` beside the CLI
+  tarballs. Apple Silicon only; the CLI tarballs cover Intel.
+- Built on `macos-26` for the SDK's chrome; `Package.swift` keeps the 15.0
+  deployment target, and nothing in the app needs API newer than
+  `searchFocused` (15).
+- The signature is ad-hoc, so macOS quarantines the download and blocks the
+  first launch; the README carries the `xattr` override. Notarizing needs a
+  Developer ID. The bundle ID is `net.zakj.seed`.
+- The icon is `icon.svg`, rendered to the checked-in `Seed.icns` by
+  `icon.sh`. It is drawn full-bleed for macOS 26's squircle mask, so earlier
+  versions show it square and oversized; the fix is an Icon Composer asset
+  (#114).
+
+### Rejected
+
+Decided against on evidence; do not re-litigate without new evidence.
+
+- `List` for the pickers: it gives arrow keys only to a focused list, has no
+  hover state, and spends its click on selection where these rows spend it on
+  ticking.
+- `ViewThatFits` to size the labels popover: a popover never resizes after
+  presentation, so it opened stuck small from the menu bar.
+- A tap gesture in a list row for double-click: it competes with the list for
+  the click and selection breaks intermittently. It broke twice.
+- Watching the repository root: recursive over `target/`, `node_modules/` and
+  `.git`.
+- An absolute-only path in the prime hook: it dangles when the app moves.
+- A parent line in the detail pane: deferred; the tree carries parent.
+- A Settings window for the `sd` path: a developer knob that cost a window.
+  The `defaults` key stays.
+- An editor that grows to its text: the measurement and its cache cost more
+  than the layout was worth, so the editor fills the pane.
 
 ## Agent Priming
 

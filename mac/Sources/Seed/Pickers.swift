@@ -2,18 +2,12 @@ import AppKit
 import SeedKit
 import SwiftUI
 
-// Filter first, then arrow and tick. Both pickers keep focus in the filter
-// field and drive the highlight by hand, so the list below never needs focus
-// of its own — see design.md for why a List cannot do this.
+// Both pickers are filter-first: focus stays in the filter field, which steps
+// the highlight itself, so the list below never needs focus. See design.md for
+// why a `List` cannot do this.
 
-/// The labels popover, pointed at tasks: filter on a title or an id, tick to
-/// add, untick to remove. Presented as a sheet because the menu bar opens it
-/// too, and a menu item has nothing to anchor a popover to.
-///
-/// All three relations share it. They ask the same question of the same list of
-/// tasks, and a task usually needs the one you did not pick from a menu — so the
-/// segments switch between them without closing anything, keeping the filter and
-/// the highlight.
+/// One sheet for all three relations; the segments switch without losing the
+/// filter or the highlight. A sheet because the menu bar opens it too.
 struct TaskPicker: View {
     @Environment(Workspace.self) private var workspace
     @Environment(\.dismiss) private var dismiss
@@ -29,16 +23,13 @@ struct TaskPicker: View {
     }
 
     var body: some View {
-        // Built once per pass: each rebuild walks the graph, sorts every task,
-        // and allocates a Candidate for each, and the sheet re-renders on every
-        // keystroke in the filter field.
+        // Built once per pass; the sheet re-renders on every keystroke.
         let candidates = candidates
         let matches = matches(in: candidates)
         let ids = matches.map(\.task.id)
 
         return VStack(alignment: .leading, spacing: 0) {
-            // The task, not the relation: the segments below name the relation,
-            // and a sheet that never says what it is about is worse for it.
+            // Headed with the task; the segments name the relation.
             Text(workspace.graph[relating.task]?.title ?? "Task #\(relating.task)")
                 .font(.headline)
                 .lineLimit(1)
@@ -59,8 +50,7 @@ struct TaskPicker: View {
                 .textFieldStyle(.roundedBorder)
                 .padding(14)
                 .highlightKeys(over: ids, highlight: $highlight, activate: relate)
-                // ⌘⇧[ and ⌘⇧] rather than a click: focus stays in the filter
-                // field, and a segmented control is not in the tab order.
+                // ⌘⇧[ and ⌘⇧]: a segmented control is not in the tab order.
                 .onKeyPress(phases: .down, action: switchRelation)
 
             Divider()
@@ -96,8 +86,7 @@ struct TaskPicker: View {
 
             HStack {
                 Spacer()
-                // Return belongs to the filter field, which relates the highlighted
-                // task; Escape is what closes the sheet.
+                // Return belongs to the filter field, so Escape closes the sheet.
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
@@ -139,23 +128,19 @@ struct TaskPicker: View {
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
-        // Dimmed rather than hidden: an arrow landing on a barred row still has
-        // to look like it moved, and the reason under the list names it.
+        // Dimmed rather than hidden, so an arrow landing here still reads as a move.
         .opacity(candidate.barred == nil ? 1 : 0.35)
         .disabled(candidate.barred != nil)
         .help(candidate.barred ?? "")
         .id(task.id)
     }
 
-    /// Arrows land on a barred candidate rather than skipping it, so the reason
-    /// under the list can name why the relation is refused. `Workspace.relate`
-    /// is what turns one down; this does not re-check.
+    /// `Store.relate` is what refuses a barred candidate; this does not re-check.
     private func relate(_ id: Int) {
-        workspace.relate(id, to: relating.task, by: relation, on: !isRelated(id))
+        workspace.store.relate(id, to: relating.task, by: relation, on: !isRelated(id))
     }
 
-    /// `help` is a hover tooltip, and arrows are not the mouse — without this a
-    /// keyboard user lands on a dimmed row, presses Return, and gets silence.
+    /// `help` is hover-only; a keyboard user needs the reason on screen.
     private func barrier(in candidates: [Candidate]) -> String? {
         highlight.flatMap { id in candidates.first { $0.task.id == id }?.barred }
     }
@@ -175,8 +160,7 @@ struct TaskPicker: View {
     }
 }
 
-/// A tick, a row, a highlight — the part both pickers draw the same way. The
-/// two spelled it out separately and their paddings had already drifted apart.
+/// The row both pickers draw: a tick, content, a highlight.
 private struct PickerRow<Content: View>: View {
     let ticked: Bool
     let highlighted: Bool
@@ -202,11 +186,8 @@ private struct PickerRow<Content: View>: View {
 }
 
 extension View {
-    /// The companion to `highlightKeys`: that one keeps the highlight on a row
-    /// that survives a narrowing filter, this one keeps that row on screen —
-    /// both when the highlight moves and when the rows under it do. Separate
-    /// modifiers because the proxy belongs to the scroll view and the keys
-    /// belong to the filter field.
+    /// Keeps the highlighted row on screen when the highlight moves or the rows
+    /// under it do.
     func scrollsToHighlight<ID: Hashable>(
         _ list: ScrollViewProxy, over ids: [ID], highlight: ID?
     ) -> some View {
@@ -219,8 +200,7 @@ extension View {
     }
 }
 
-/// Both pickers keep focus in their filter field, so the list below never sees
-/// an arrow key itself; the field steps the highlight instead.
+/// The filter field steps the highlight; the list below never sees an arrow key.
 private struct HighlightKeys<ID: Hashable>: ViewModifier {
     let ids: [ID]
     @Binding var highlight: ID?
@@ -233,8 +213,7 @@ private struct HighlightKeys<ID: Hashable>: ViewModifier {
             .onSubmit {
                 if let highlight { activate(highlight) }
             }
-            // A narrowed filter keeps the highlight when it survives the cut, and
-            // takes the first row when it doesn't.
+            // A narrowed filter keeps a surviving highlight, else takes the first row.
             .onChange(of: ids, initial: true) { _, ids in
                 guard highlight.map(ids.contains) != true else { return }
                 highlight = ids.first
@@ -257,13 +236,12 @@ extension View {
     }
 
     func highlighted(_ on: Bool) -> some View {
-        background(on ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 5))
+        background(
+            on ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 5))
     }
 }
 
-/// Labels read as text, not as a third pop-up button: they are something to
-/// glance at far more often than to change. The control strip flows, so the
-/// whole list moves to its own row together rather than splitting across two.
+/// Labels read as text: glanced at far more often than changed.
 struct LabelsField: View {
     @Environment(Workspace.self) private var workspace
     let task: SeedTask
@@ -272,9 +250,9 @@ struct LabelsField: View {
     @State private var highlight: Entry?
 
     private var picking: Binding<Bool> {
-        Binding(get: { workspace.labelling == task.id }) { open in
-            workspace.labelling = open ? task.id : nil
-        }
+        Binding(
+            get: { workspace.labelling == task.id },
+            set: { workspace.labelling = $0 ? task.id : nil })
     }
 
     var body: some View {
@@ -292,10 +270,8 @@ struct LabelsField: View {
         .buttonStyle(.plain)
         .help("Edit labels")
         .popover(isPresented: picking, arrowEdge: .bottom) { picker }
-        // Cleared here rather than inside the popover, which the menu bar opens
-        // as well as the button: a filter left over from the last time would hide
-        // most of the labels behind a word nobody typed, and by the time the
-        // popover appears it has already claimed its highlight.
+        // Cleared as the popover opens rather than inside it: the menu bar opens
+        // it too, and the popover claims its highlight before `onAppear`.
         .onChange(of: workspace.labelling) { _, id in
             guard id == task.id else { return }
             filter = ""
@@ -303,11 +279,10 @@ struct LabelsField: View {
         }
     }
 
-    /// A fixed width and a scroll: a menu of every label in the repository takes
-    /// both its height and its width from the repository rather than the task.
+    /// Fixed size: a popover takes its size at presentation and never resizes,
+    /// and a menu would take its size from the repository rather than the task.
     private var picker: some View {
-        // Built once per pass, the way TaskPicker does: this filters every label
-        // in the repository and the body re-runs on every keystroke.
+        // Built once per pass; the body re-runs on every keystroke.
         let entries = entries
 
         return VStack(spacing: 0) {
@@ -318,10 +293,6 @@ struct LabelsField: View {
 
             Divider()
 
-            // A fixed height rather than one that fits the rows: a popover takes
-            // its size when it is presented and never resizes, so a height that
-            // fit the filtered list would be the height the next filter is stuck
-            // with.
             ScrollViewReader { list in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -350,14 +321,11 @@ struct LabelsField: View {
         .id(entry)
     }
 
-    /// Creating sits in the list rather than after it, so ↓ reaches it and the
-    /// row a highlight names is always one the arrows can get to.
+    /// Creating sits in the list rather than after it, so ↓ reaches it.
     private enum Entry: Hashable {
         case label(String)
-        /// Carries no name: with the filter in the payload every keystroke made
-        /// a different `Entry`, dropping a highlight resting on this row onto
-        /// whichever label matched next — so Return created nothing and ticked
-        /// something else instead.
+        /// Carries no name: a payload changing per keystroke would drop a
+        /// highlight resting here.
         case create
     }
 
@@ -380,13 +348,12 @@ struct LabelsField: View {
     private func activate(_ entry: Entry) {
         switch entry {
         case .label(let label):
-            workspace.edit(task.id, task.labels.contains(label) ? .removeLabel(label) : .addLabel(label))
+            workspace.store.edit(
+                task.id, task.labels.contains(label) ? .removeLabel(label) : .addLabel(label))
         case .create:
-            // The filter stays: clearing it widens `entries` to every label in
-            // the repository while the write and its reload are still in flight,
-            // and the highlight resets onto an arbitrary one. A second Return on
-            // the same row re-adds the same label, which `sd` no-ops.
-            workspace.edit(task.id, .addLabel(trimmedFilter))
+            // The filter stays: clearing it widens `entries` before the reload
+            // lands and moves the highlight.
+            workspace.store.edit(task.id, .addLabel(trimmedFilter))
         }
     }
 
@@ -403,4 +370,3 @@ struct LabelsField: View {
         !trimmedFilter.isEmpty && !workspace.labels.contains(trimmedFilter)
     }
 }
-

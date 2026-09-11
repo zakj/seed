@@ -34,6 +34,8 @@ jobs:
         with:
           path: mac/.build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('mac/Package.resolved') }}
+      - run: swift format lint --strict --recursive Sources Tests
+        working-directory: mac
       # Builds the app target as well as the tests, so this is also the check
       # that the app still compiles for the macOS version it claims to support.
       - run: swift test

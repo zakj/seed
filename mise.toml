@@ -23,11 +23,23 @@ fi
 
 [tasks.check]
 description = "Run lint and test (matches CI)"
-depends = ["lint", "test --quiet", "mac:test"]
+depends = ["lint", "test --quiet", "mac:lint", "mac:test"]
 
 [tasks."mac:build"]
 description = "Build the macOS app bundle"
 run = "./mac/build.sh"
+
+[tasks."mac:lint"]
+description = "Check the Swift sources with swift-format"
+dir = "mac"
+run = """
+#!/usr/bin/env bash
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "mac:lint - skipped, needs the macOS toolchain"
+  exit 0
+fi
+swift format lint --strict --recursive Sources Tests
+"""
 
 [tasks."mac:test"]
 description = "Build the macOS app and run the SeedKit tests"

@@ -13,9 +13,8 @@ struct TaskListView: View {
             List(rows, selection: $workspace.selection) { row in
                 TaskRow(row: row)
             }
-            // The list's own double-click and right-click, rather than gestures
-            // in the row: a tap gesture there competes with the list for the
-            // same click and selection stops working intermittently.
+            // The list's own double-click and right-click: a gesture in the row
+            // competes with the list for the click and breaks selection.
             .contextMenu(forSelectionType: Int.self) { ids in
                 if let task = ids.first.flatMap({ workspace.graph[$0] }) {
                     TaskActions(workspace: workspace, task: task)
@@ -26,29 +25,24 @@ struct TaskListView: View {
                 guard workspace.showsTree else { return }
                 for id in ids { workspace.toggle(id) }
             }
-            // Not animated: the transaction would also catch the detail pane
-            // swapping from the composer to the created task, and cross-fade it.
+            // Not animated: the transaction would also cross-fade the detail pane.
             .onChange(of: workspace.revealed) { _, reveal in
                 guard let reveal else { return }
-                list.scrollTo(reveal.id)
+                list.scrollTo(reveal.value)
             }
-            // A row that survives a filter change can still land at a different
-            // offset, which moves it out of view without changing the selection.
-            // Keyed off the selection, not `revealed`: that one is sticky for
-            // the window's life, so reading it here would drag the list back to
-            // the last revealed task on every filter change forever.
+            // A filter change can move the selected row out of view. Keyed off
+            // the selection, not `revealed`, which is sticky and would drag the
+            // list back on every filter change.
             .onChange(of: rows.map(\.id)) { _, _ in
                 guard let id = workspace.selection else { return }
                 list.scrollTo(id)
             }
         }
-        // ← and → are what every macOS outline uses, and unlike a tap gesture in
-        // the row they do not compete with the list for a click.
         .onKeyPress(.leftArrow) { workspace.collapseSelection() ? .handled : .ignored }
         .onKeyPress(.rightArrow) { workspace.expandSelection() ? .handled : .ignored }
         .searchable(text: $workspace.search, prompt: "Search Tasks")
         .searchFocused($searching)
-        .onChange(of: workspace.focusSearchRequests) { _, _ in searching = true }
+        .onChange(of: workspace.searchFocus) { _, _ in searching = true }
         .overlay {
             if rows.isEmpty { emptyState }
         }
@@ -72,9 +66,10 @@ struct TaskListView: View {
             ContentUnavailableView {
                 Label("Nothing Here", systemImage: "checkmark.circle")
             } description: {
-                Text(workspace.scope == .next
-                     ? "No task is unblocked and ready to start."
-                     : "No tasks match this list.")
+                Text(
+                    workspace.scope == .next
+                        ? "No task is unblocked and ready to start."
+                        : "No tasks match this list.")
             }
         }
     }
@@ -108,19 +103,19 @@ struct TaskRow: View {
         .padding(.vertical, 1)
     }
 
-    /// A row carried along to show where a search match sits reads as context,
-    /// not as an answer.
+    /// A row carried along to show where a match sits reads as context.
     private var titleStyle: HierarchicalShapeStyle {
         if !row.matches { return .tertiary }
         return task.status.isResolved ? .secondary : .primary
     }
 
-    /// A childless row draws the triangle too, invisibly: omitting it makes the
-    /// row measure differently, and a level's titles stop lining up.
+    /// A childless row draws the triangle invisibly so a level's titles line up.
     private var disclosure: some View {
         let open = workspace.expanded.contains(task.id)
 
-        return Button { workspace.toggle(task.id) } label: {
+        return Button {
+            workspace.toggle(task.id)
+        } label: {
             Image(systemName: "chevron.right")
                 .imageScale(.small)
                 .foregroundStyle(.secondary)
@@ -132,7 +127,6 @@ struct TaskRow: View {
         .opacity(row.hasChildren ? 1 : 0)
         .disabled(!row.hasChildren)
         .accessibilityLabel(open ? "Collapse" : "Expand")
-        // The invisible placeholder is layout, not a control anyone can use.
         .accessibilityHidden(!row.hasChildren)
         .padding(.leading, CGFloat(row.depth) * 16)
         .animation(.easeOut(duration: 0.12), value: open)
@@ -162,8 +156,7 @@ struct StatusIcon: View {
     }
 }
 
-/// The same symbols the priority menu shows, so a row and the control that
-/// changes it are never drawing the same priority two different ways.
+/// The same symbols the priority menu shows.
 struct PriorityMark: View {
     let priority: Priority
 
@@ -187,14 +180,10 @@ struct PriorityMark: View {
 }
 
 extension Status {
-    /// Menu order, which is the order the work goes in rather than the order the
-    /// cases are declared: start it, finish it, and only then the two ways back
-    /// out. `allCases` reads as "Move Back to To Do" first, which is nobody's
-    /// first thought about a task.
+    /// The order the work goes in: start, finish, then the two ways back.
     static let menuOrder: [Status] = [.inProgress, .done, .todo, .dropped]
 
-    /// The key that sets this status. `todo` has none — it is the state a task
-    /// starts in, reached by moving back rather than by aiming at it.
+    /// `todo` is reached by moving back, so it has no key.
     var shortcut: KeyEquivalent? {
         switch self {
         case .inProgress: "s"
@@ -205,18 +194,10 @@ extension Status {
     }
 }
 
-/// Everything the Task menu offers, rendered by both the menu bar and a row's
-/// context menu — which act on the same task, since `contextMenu(forSelectionType:)`
-/// selects the row before building. Written once because the two had already
-/// drifted apart about which actions exist.
-///
-/// The buttons carry their key equivalents here rather than only in the menu
-/// bar: a shortcut inside a context menu is displayed but never registered,
-/// checked by giving one a chord nothing else used and finding it inert.
-///
-/// Both inputs are optional because the menu bar exists with no window focused
-/// and no task selected, where every item has to appear and disable rather than
-/// vanish.
+/// The Task menu, rendered by both the menu bar and a row's context menu. The
+/// buttons carry their key equivalents: a shortcut inside a context menu is
+/// displayed but never registered. Both inputs are optional because the menu
+/// bar exists with no window focused, where every item disables rather than vanishes.
 struct TaskActions: View {
     let workspace: Workspace?
     let task: SeedTask?
@@ -227,8 +208,7 @@ struct TaskActions: View {
         ForEach(Status.menuOrder) { status in
             Button(status.verb) { apply(.status(status)) }
                 // Disabled mid-edit: a menu key equivalent beats the field
-                // editor, so ⌘S in a description would set a status and log it,
-                // and `sd` has no undo.
+                // editor, and `sd` has no undo.
                 .keyboardShortcut(status.shortcut.map { KeyboardShortcut($0) })
                 .disabled(task == nil || task?.status == status || editing)
         }
@@ -244,9 +224,7 @@ struct TaskActions: View {
 
         Divider()
 
-        // Toggles, so the key that starts an edit also ends it. Both halves are
-        // the workspace's, which is why this needs no view to reach into and no
-        // opinion about which window is key.
+        // A toggle, so the key that starts an edit also ends it.
         Button(editing ? "Save Description" : "Edit Description") {
             if editing { workspace?.commitEditing() } else { workspace?.beginEditing() }
         }
@@ -269,12 +247,12 @@ struct TaskActions: View {
         Button("Copy Task ID") {
             if let task { workspace?.copyID(task) }
         }
-            .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(task == nil)
+        .keyboardShortcut("c", modifiers: [.command, .shift])
+        .disabled(task == nil)
     }
 
     private func apply(_ edit: Edit) {
         guard let task, let workspace else { return }
-        workspace.edit(task.id, edit)
+        workspace.store.edit(task.id, edit)
     }
 }

@@ -1,16 +1,18 @@
 import Foundation
 import Testing
+
 @testable import SeedKit
 
 private func decode(_ json: String) throws -> [SeedTask] {
-    try JSONDecoder().decode([SeedTask].self, from: Data(json.utf8))
+    try JSONDecoder.seed.decode([SeedTask].self, from: Data(json.utf8))
 }
 
 @Test func decodesOmittedFieldsAsDefaults() throws {
-    let tasks = try decode("""
-    [{"id":9,"title":"Two-way sync","status":"todo",
-      "created":"2026-03-05T20:34:34.158526Z","modified":"2026-03-13T02:20:30.840129Z"}]
-    """)
+    let tasks = try decode(
+        """
+        [{"id":9,"title":"Two-way sync","status":"todo",
+          "created":"2026-03-05T20:34:34.158526Z","modified":"2026-03-13T02:20:30.840129Z"}]
+        """)
     let task = try #require(tasks.first)
     #expect(task.priority == .normal)
     #expect(task.labels.isEmpty)
@@ -23,10 +25,13 @@ private func decode(_ json: String) throws -> [SeedTask] {
 }
 
 @Test func parsesMicrosecondTimestamps() throws {
-    let task = try #require(try decode("""
-    [{"id":1,"title":"t","status":"done",
-      "created":"2026-03-05T20:34:21.577676Z","modified":"2026-03-05T20:34:21Z"}]
-    """).first)
+    let task = try #require(
+        try decode(
+            """
+            [{"id":1,"title":"t","status":"done",
+              "created":"2026-03-05T20:34:21.577676Z","modified":"2026-03-05T20:34:21Z"}]
+            """
+        ).first)
     #expect(abs(task.created.timeIntervalSince1970 - 1_772_742_861.577676) < 1e-6)
     #expect(task.modified.timeIntervalSince1970 == 1_772_742_861)
 }
@@ -189,19 +194,13 @@ private func task(
 
 // MARK: - Recents
 
-/// In memory rather than a scratch `UserDefaults` suite: a suite cannot be
-/// cleaned up from inside the test process — cfprefsd writes the domain back
-/// out after exit, leaving an empty plist in ~/Library/Preferences however
-/// thoroughly the test removes it on the way out.
+/// In memory rather than a scratch `UserDefaults` suite, which cfprefsd writes
+/// back to ~/Library/Preferences after the test process exits.
 private final class MemoryStore: RecentsStore {
     private var values: [String: Any] = [:]
 
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
-}
-
-private func withScratchDefaults(_ body: (MemoryStore) throws -> Void) throws {
-    try body(MemoryStore())
 }
 
 /// `Recents` drops entries that are no longer repositories, so these have to be
@@ -222,55 +221,48 @@ private func repository(_ name: String) -> URL {
 }
 
 @MainActor
-@Test func recentsLeadWithTheLastOpenedAndNeverRepeat() throws {
-    try withScratchDefaults { defaults in
-        let recents = Recents(defaults: defaults)
-        for name in ["one", "two", "three"] { recents.add(repository(name)) }
-        #expect(recents.urls.map(\.lastPathComponent) == ["three", "two", "one"])
+@Test func recentsLeadWithTheLastOpenedAndNeverRepeat() {
+    let recents = Recents(defaults: MemoryStore())
+    for name in ["one", "two", "three"] { recents.add(repository(name)) }
+    #expect(recents.urls.map(\.lastPathComponent) == ["three", "two", "one"])
 
-        recents.add(repository("one"))
-        #expect(recents.urls.map(\.lastPathComponent) == ["one", "three", "two"])
-    }
+    recents.add(repository("one"))
+    #expect(recents.urls.map(\.lastPathComponent) == ["one", "three", "two"])
 }
 
 @MainActor
-@Test func recentsStopAtTen() throws {
-    try withScratchDefaults { defaults in
-        let recents = Recents(defaults: defaults)
-        for index in 1...14 { recents.add(repository("r\(index)")) }
-        #expect(recents.urls.count == 10)
-        #expect(recents.urls.first?.lastPathComponent == "r14")
-        #expect(recents.urls.last?.lastPathComponent == "r5")
-    }
+@Test func recentsStopAtTen() {
+    let recents = Recents(defaults: MemoryStore())
+    for index in 1...14 { recents.add(repository("r\(index)")) }
+    #expect(recents.urls.count == 10)
+    #expect(recents.urls.first?.lastPathComponent == "r14")
+    #expect(recents.urls.last?.lastPathComponent == "r5")
 }
 
 @MainActor
-@Test func recentsSurviveAndClear() throws {
-    try withScratchDefaults { defaults in
-        let recents = Recents(defaults: defaults)
-        recents.add(repository("kept"))
-        #expect(Recents(defaults: defaults).urls == recents.urls)
+@Test func recentsSurviveAndClear() {
+    let defaults = MemoryStore()
+    let recents = Recents(defaults: defaults)
+    recents.add(repository("kept"))
+    #expect(Recents(defaults: defaults).urls == recents.urls)
 
-        recents.clear()
-        #expect(Recents(defaults: defaults).urls.isEmpty)
-    }
+    recents.clear()
+    #expect(Recents(defaults: defaults).urls.isEmpty)
 }
 
 @MainActor
 @Test func recentsSkipAHeadThatIsGone() throws {
-    try withScratchDefaults { defaults in
-        let kept = repository("kept")
-        let removed = repository("removed")
-        let recents = Recents(defaults: defaults)
-        recents.add(kept)
-        recents.add(removed)
+    let kept = repository("kept")
+    let removed = repository("removed")
+    let recents = Recents(defaults: MemoryStore())
+    recents.add(kept)
+    recents.add(removed)
 
-        try FileManager.default.removeItem(at: removed)
-        // The menu still lists it — clicking a dead entry deliberately is a
-        // different thing from a new window silently landing on one.
-        #expect(recents.urls.count == 2)
-        #expect(recents.firstWorkspace == kept)
-    }
+    try FileManager.default.removeItem(at: removed)
+    // The menu still lists it: clicking a dead entry deliberately is not the
+    // same as a new window silently landing on one.
+    #expect(recents.urls.count == 2)
+    #expect(recents.firstWorkspace == kept)
 }
 
 /// `sd` stands in as any command: what these cover is `run` itself — the pipes,
@@ -283,10 +275,8 @@ private func sh(_ script: String) async throws -> Data {
     )
 }
 
-/// Both pipes are drained at once because draining one to its end *before* the
-/// other deadlocks as soon as the second fills its buffer. Verified: replacing
-/// the two `async let`s with sequential `readDataToEndOfFile` calls hangs here
-/// and passes every other test in this file.
+/// Draining one pipe to its end before the other deadlocks once the second
+/// fills its buffer; this hangs if the two reads are made sequential.
 @Test(.timeLimit(.minutes(1))) func drainsBothPipesPastTheBufferLimit() async throws {
     let data = try await sh("yes onlyout | head -c 2000000; yes onlyerr | head -c 2000000 1>&2")
     #expect(data.count == 2_000_000)
@@ -321,7 +311,8 @@ private func sh(_ script: String) async throws -> Data {
 /// A command that cannot even start has to report that, not hang: commands run
 /// one at a time, so one that never returns takes every later write with it.
 @Test(.timeLimit(.minutes(1))) func reportsAProcessThatCannotStart() async throws {
-    let missing = URL(filePath: "/private/tmp/seed-not-here-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let missing = URL(
+        filePath: "/private/tmp/seed-not-here-\(UUID().uuidString)", directoryHint: .isDirectory)
 
     await #expect(throws: (any Error).self) {
         try await SeedCLI.run(["list"], binary: URL(filePath: "/bin/echo"), repository: missing)
@@ -329,22 +320,27 @@ private func sh(_ script: String) async throws -> Data {
 }
 
 @Test func keepsATitleStartingWithADashOutOfFlagPosition() {
-    #expect(SeedCLI.addArguments(title: "-n is not a flag here", parent: nil)
-        == ["add", "--quiet", "--", "-n is not a flag here"])
+    #expect(
+        SeedCLI.addArguments(title: "-n is not a flag here", parent: nil)
+            == ["add", "--quiet", "--", "-n is not a flag here"])
     // Options have to land before the separator or `sd` reads them as title.
-    #expect(SeedCLI.addArguments(title: "child", parent: 7)
-        == ["add", "--quiet", "--parent=7", "--", "child"])
+    #expect(
+        SeedCLI.addArguments(title: "child", parent: 7)
+            == ["add", "--quiet", "--parent=7", "--", "child"])
 }
 
 @Test func decodesALogEntry() throws {
     // One bad entry fails the whole `[SeedTask]` decode, which takes the task
     // list down with it.
-    let task = try #require(try decode("""
-    [{"id":1,"title":"t","status":"todo",
-      "created":"2026-03-05T20:34:21Z","modified":"2026-03-05T20:34:21Z",
-      "log":[{"timestamp":"2026-03-05T20:34:21.5Z","message":"did a thing","agent":"claude"},
-             {"timestamp":"2026-03-05T20:35:00Z","message":"no agent"}]}]
-    """).first)
+    let task = try #require(
+        try decode(
+            """
+            [{"id":1,"title":"t","status":"todo",
+              "created":"2026-03-05T20:34:21Z","modified":"2026-03-05T20:34:21Z",
+              "log":[{"timestamp":"2026-03-05T20:34:21.5Z","message":"did a thing","agent":"claude"},
+                     {"timestamp":"2026-03-05T20:35:00Z","message":"no agent"}]}]
+            """
+        ).first)
     #expect(task.log.count == 2)
     #expect(task.log[0].agent == "claude")
     #expect(task.log[0].message == "did a thing")
@@ -416,4 +412,77 @@ private func sh(_ script: String) async throws -> Data {
     #expect(found.matches("7"))
     #expect(found.matches("t7"))
     #expect(found.matches("8") == false)
+}
+
+// MARK: - Store
+
+private let storeRoot: URL = {
+    let root = URL(filePath: NSTemporaryDirectory())
+        .appending(path: "seed-store-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    atexit_b { try? FileManager.default.removeItem(at: root) }
+    return root
+}()
+
+/// A store over a stand-in `sd`: `list` answers an empty graph, `add` an id,
+/// `edit` records when it started and finished, and `edit 9` is refused.
+@MainActor
+private func fakeStore() throws -> (store: Store, log: URL) {
+    let root = storeRoot.appending(path: UUID().uuidString)
+    let repository = SeedCLI.directory(root.appending(path: "repo"))
+    try FileManager.default.createDirectory(
+        at: repository.appending(path: ".seed"), withIntermediateDirectories: true)
+    let log = root.appending(path: "log")
+    let script = root.appending(path: "sd")
+    try """
+    #!/bin/sh
+    case "$1" in
+      list) echo '[]' ;;
+      add) echo 42 ;;
+      edit)
+        [ "$2" = 9 ] && { echo 'refused: #9 is not done' >&2; exit 1; }
+        echo "start $2" >> '\(log.path)'; sleep 0.2; echo "end $2" >> '\(log.path)' ;;
+    esac
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+    let store = Store(binary: script, recents: Recents(defaults: MemoryStore()))
+    store.open(repository)
+    return (store, log)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func storeRunsCommandsOneAtATime() async throws {
+    let (store, log) = try fakeStore()
+    let first = store.edit(1, .status(.done))
+    let second = store.edit(2, .status(.done))
+    _ = await first.value
+    _ = await second.value
+    let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+    #expect(lines == ["start 1", "end 1", "start 2", "end 2"])
+    #expect(store.presentation == .tasks(stale: false))
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func storeQueuesARefusedEditWithItsMessage() async throws {
+    let (store, _) = try fakeStore()
+    #expect(await store.edit(9, .status(.done)).value == nil)
+    #expect(store.failures.first?.message == "refused: #9 is not done")
+    // Only marking done offers `--force`, and it re-runs exactly this command.
+    #expect(store.failures.first?.force == ["edit", "9", "--status=done"])
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func storeAddReturnsTheNewID() async throws {
+    let (store, _) = try fakeStore()
+    #expect(await store.add(title: "t", parent: nil).value == 42)
+}
+
+@MainActor
+@Test func storeOffersToInitializeAFolderWithoutASeed() throws {
+    let folder = SeedCLI.directory(storeRoot.appending(path: UUID().uuidString))
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let store = Store(
+        binary: URL(filePath: "/usr/bin/true"), recents: Recents(defaults: MemoryStore()))
+    store.open(folder)
+    #expect(store.presentation == .uninitialized(folder))
 }

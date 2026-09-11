@@ -20,12 +20,9 @@ public final class Recents {
             .map { SeedCLI.directory(URL(filePath: $0)) }
     }
 
-    /// What a window with no repository of its own opens, so it has to still be
-    /// one — a moved or deleted head otherwise greets the user with a first-run
-    /// pane offering to initialize a directory that isn't there. Checked here
-    /// rather than filtered at load: an entry on an unmounted volume would put
-    /// an autofs mount attempt on the launch path for a repository nobody asked
-    /// to open.
+    /// Has to still be a repository, or a fresh window opens onto a first-run
+    /// pane for a folder that is gone. Checked on demand: filtering at load
+    /// would put an autofs mount on the launch path.
     public var firstWorkspace: URL? { urls.first(where: SeedCLI.isWorkspace) }
 
     public func add(_ url: URL) {
@@ -45,11 +42,8 @@ public final class Recents {
     }
 }
 
-/// What `Recents` needs of `UserDefaults`, so a test can hand it something that
-/// is not the user's real preferences. A scratch suite cannot be cleaned up:
-/// cfprefsd writes the domain back out after the process exits, so removing the
-/// domain and unlinking the file still leaves an empty plist behind — seconds
-/// later, which is late enough to look clean if you check straight away.
+/// What `Recents` needs of `UserDefaults`, so a test can pass memory: a scratch
+/// suite is written back by cfprefsd after the process exits.
 public protocol RecentsStore: AnyObject {
     func stringArray(forKey key: String) -> [String]?
     func set(_ value: Any?, forKey key: String)

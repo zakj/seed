@@ -14,8 +14,7 @@ public enum Relation: CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// The edit that turns this relation on or off, which side of the edge it
-    /// is stored on included.
+    /// The edit that turns this relation on or off, and which task it is written on.
     public func edit(_ candidate: Int, to id: Int, on: Bool) -> (task: Int, edit: Edit) {
         switch self {
         case .blockedBy: (id, on ? .addDependency(candidate) : .removeDependency(candidate))
