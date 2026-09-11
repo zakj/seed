@@ -13,11 +13,6 @@ struct WrappingTextField: NSViewRepresentable {
     /// Set to give the field Escape; without one the key keeps its usual meaning.
     var onCancel: (() -> Void)?
     var takesFocus = false
-    /// Return inserts a line rather than ending the edit.
-    var insertsNewlines = false
-    /// Taking focus selects the text, so the first keystroke replaces it. Fine
-    /// for a title being renamed, ruinous for a description being appended to.
-    var selectsOnFocus = true
 
     /// The title face, shared by the composer and the detail pane — they are
     /// meant to be the same field, which two identical literals only imply.
@@ -35,12 +30,7 @@ struct WrappingTextField: NSViewRepresentable {
         field.focusRingType = .none
         context.coordinator.watchClicks(around: field)
         if takesFocus {
-            let selectsOnFocus = selectsOnFocus
-            DispatchQueue.main.async {
-                field.window?.makeFirstResponder(field)
-                guard !selectsOnFocus else { return }
-                field.currentEditor()?.moveToEndOfDocument(nil)
-            }
+            DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
         }
         return field
     }
@@ -118,7 +108,8 @@ struct WrappingTextField: NSViewRepresentable {
             parent.onCommit()
         }
 
-        /// A wrapping field editor treats Return as a newline; titles are one line.
+        /// A wrapping field editor treats Return as a newline; these are all
+        /// one-line titles, so it ends the edit instead.
         func control(
             _ control: NSControl, textView: NSTextView, doCommandBy selector: Selector
         ) -> Bool {
@@ -127,12 +118,7 @@ struct WrappingTextField: NSViewRepresentable {
                 return true
             }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            if parent.insertsNewlines {
-                // The field editor ends editing on Return unless told otherwise.
-                textView.insertNewlineIgnoringFieldEditor(nil)
-            } else {
-                control.window?.makeFirstResponder(nil)
-            }
+            control.window?.makeFirstResponder(nil)
             return true
         }
     }

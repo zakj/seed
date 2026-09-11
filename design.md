@@ -435,10 +435,36 @@ already names itself, and the "Add" pill on a relation line.
   describing — and that slot is a button in both states, always taking its own
   height, so starting an edit moves nothing below it and the slot never turns
   from a button into prose. There is no cancel — the editor's own undo covers a
-  mistake before you leave, and the tasks are in version control. Both fields are the same
-  wrapping `NSTextField`, so the editor grows with its text rather than being a
-  fixed box: empty, that box was a wall of nothing; long, it was a scroller
-  inside a scroller. Taking focus leaves the caret at the end rather than
+  mistake before you leave, and the tasks are in version control.
+
+  **Reading is a document and editing is a form**, and they are two layouts
+  rather than one with a field swapped in. A scroll view offers no height along
+  the axis it scrolls, so nothing inside one can be given the space left over —
+  and an editor that cannot be given it has to size itself to its text, which
+  puts the end of a long description past the bottom of the window with nothing
+  able to scroll there. So editing drops the scroll view: the title and meta
+  lines take what they need, the editor takes the rest and scrolls inside
+  itself, and keeping the caret in view is then AppKit's, which it does
+  completely for a text view that owns its scroller and unreliably for every
+  other arrangement. The editor still grows to its text and stops at the room
+  left, with two lines as its floor so an empty one reads as somewhere to write
+  rather than as a wall of nothing. The
+  activity log is not shown while editing — it is the one part of the pane that
+  is neither the thing being edited nor context for it, and the room it wants
+  is the room the editor is for.
+
+  The editor is drawn as a region with an extent, because text that stops
+  against nothing reads as clipped by accident rather than as continuing, and
+  the edge it runs past is faded. Both are AppKit's: the fade is a layer mask
+  on the clip view, since a mask in SwiftUI puts the editor through an
+  offscreen pass on every frame of a scroll, and publishing the edges back out
+  for SwiftUI to draw re-rendered the pane each time one changed. Nothing that
+  changes at scroll frequency is allowed to become SwiftUI state — the editor's
+  measured height is remembered for the same reason, since the layout is re-run
+  dozens of times a second while scrolling and measuring the text again each
+  time is most of a frame.
+
+  Taking focus leaves the caret at the end rather than
   selecting everything, since a description is usually added to. Clicking empty
   space moves no responder on its own, and a scroll view takes the click before
   anything drawn behind it could, so the field watches for a click outside itself
