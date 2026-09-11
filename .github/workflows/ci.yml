@@ -46,7 +46,7 @@ jobs:
         run: |
           app=mac/Seed.app
           for f in Contents/MacOS/Seed Contents/MacOS/sd Contents/Info.plist \
-                   Contents/Resources/Seed.icns; do
+                   Contents/Resources/Seed.icns Contents/Resources/Credits.html; do
             test -e "$app/$f" || { echo "missing $f"; exit 1; }
           done
           # The bundled sd has to be the one just built, not a stale copy a

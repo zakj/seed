@@ -248,7 +248,9 @@ atomic writes stay in one place. No FFI, no shared Rust code, no daemon.
   download whose name and About panel disagree. The bundle ID is
   `net.zakj.seed`, the reverse of a domain that is actually owned: it is fixed
   for good once Apple has it against a Developer ID, so the free moment to get
-  it right is before there is one.
+  it right is before there is one. The repository link under the version is a
+  `Resources/Credits.html` the standard panel picks up on its own, links live —
+  the whole panel is AppKit's, and holding one URL does not earn a replacement.
 - **The mac jobs run on `macos-26`.** The runner image's Xcode picks the SDK,
   and an app built against the 15 SDK keeps the old chrome however new the Mac
   running it is. `Package.swift` still sets the 15.0 deployment target, so the

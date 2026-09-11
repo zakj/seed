@@ -32,6 +32,9 @@ version=$("$app/Contents/MacOS/sd" --version | awk '{print $2}')
 plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$version" "$app/Contents/Info.plist"
 cp Seed.icns "$app/Contents/Resources/Seed.icns"
+# The standard About panel renders a Resources/Credits file under the version,
+# links live. Cheaper than replacing the panel to hold one URL.
+cp Credits.html "$app/Contents/Resources/Credits.html"
 # A dependency's resources are emitted as a bundle beside the binary and looked
 # up relative to the main bundle, so leaving them behind is silent: Textual's
 # highlighter just stops highlighting inside the app while it still works from
