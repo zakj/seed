@@ -87,40 +87,22 @@ struct TaskDetail: View {
     @State private var title = ""
     @State private var editingTitle = false
 
+    /// Reading is a document and editing is a form, and they are different
+    /// layouts rather than one layout with a field swapped in. A scroll view
+    /// offers no height along the axis it scrolls, so nothing inside one can
+    /// fill the space that is left — and an editor that cannot be given the
+    /// space that is left has to size itself to its text, which puts the end
+    /// of a long description past the bottom of the window with nothing able
+    /// to scroll to it. Editing drops the scroll view for that reason: the
+    /// header and the footer take what they need, the editor takes the rest
+    /// and scrolls inside itself, and the caret is AppKit's to keep in view.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                WrappingTextField(
-                    text: $title,
-                    placeholder: "Untitled task",
-                    font: WrappingTextField.title,
-                    onEditingChanged: { editingTitle = $0 },
-                    onCommit: commitTitle
-                )
-                .frame(maxWidth: .infinity)
-
-                dates
-                    .padding(.top, 5)
-
-                controls
-                    .padding(.top, 16)
-
-                relations
-                    .padding(.top, 12)
-
-                Divider()
-                    .padding(.vertical, 18)
-
-                description
-
-                if !task.log.isEmpty {
-                    Divider()
-                        .padding(.top, 20)
-                    activity
-                }
+        Group {
+            if isEditing {
+                editingLayout
+            } else {
+                readingLayout
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
         }
         .environment(\.openURL, OpenURLAction { url in
             guard url.scheme == "seed", let id = Int(url.lastPathComponent) else {
@@ -141,6 +123,72 @@ struct TaskDetail: View {
             commitTitle()
             workspace.commitEditing()
         }
+    }
+
+    private var readingLayout: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+
+                Divider()
+                    .padding(.vertical, 18)
+
+                description
+
+                if !task.log.isEmpty {
+                    Divider()
+                        .padding(.top, 20)
+                    activity
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+        }
+    }
+
+    /// The activity log is not shown while editing: it is the one part of the
+    /// pane that is neither the thing being edited nor the context for it, and
+    /// the room it wants is the room the editor is for.
+    private var editingLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+
+            Divider()
+                .padding(.vertical, 18)
+
+            // The block is offered the rest of the pane and the editor takes
+            // what its text needs of it, so a long description fills to the
+            // footer and a short one sits under the meta lines where it was
+            // read, with the leftover below them both.
+            description
+                .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        // Less than the top: the footer carries its own hit-target padding,
+        // and the two together read as a bigger gap than the one above.
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        WrappingTextField(
+            text: $title,
+            placeholder: "Untitled task",
+            font: WrappingTextField.title,
+            onEditingChanged: { editingTitle = $0 },
+            onCommit: commitTitle
+        )
+        .frame(maxWidth: .infinity)
+
+        dates
+            .padding(.top, 5)
+
+        controls
+            .padding(.top, 16)
+
+        relations
+            .padding(.top, 12)
     }
 
     private var dates: some View {
@@ -269,23 +317,39 @@ struct TaskDetail: View {
     private var description: some View {
         VStack(alignment: .leading, spacing: 4) {
             if isEditing {
-                // The same field as the title, so it grows with its text: a
-                // fixed height is a wall of nothing when empty and a scroller
-                // inside a scroller when long.
-                WrappingTextField(
+                // Grows to its text and stops at the room the layout has
+                // left, with two lines as its floor: empty it reads as
+                // somewhere to write rather than a wall of nothing, and long
+                // it scrolls inside itself rather than running off the bottom
+                // of the window.
+                ScrollingTextView(
                     text: draft,
-                    placeholder: "Describe this task",
-                    font: .monospacedSystemFont(
-                        ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize,
-                        weight: .regular
-                    ),
+                    font: ScrollingTextView.body,
                     onCommit: workspace.commitEditing,
-                    onCancel: workspace.commitEditing,
-                    takesFocus: true,
-                    insertsNewlines: true,
-                    selectsOnFocus: false
+                    onCancel: workspace.commitEditing
                 )
                 .frame(maxWidth: .infinity)
+                // The editor is a region with an extent, and while editing it
+                // has to look like one: text that stops against nothing reads
+                // as clipped by accident. Padded outward so the words stay on
+                // the same left margin as the rendered description they
+                // replace, and so the last line runs under an edge rather
+                // than off one.
+                .background(
+                    .fill.quaternary, in: RoundedRectangle(cornerRadius: 6).inset(by: -8)
+                )
+                .overlay(alignment: .topLeading) {
+                    if draft.wrappedValue.isEmpty {
+                        Text("Describe this task")
+                            .font(Font(ScrollingTextView.body))
+                            .foregroundStyle(.tertiary)
+                            // The editor behind it carries the label; this is
+                            // the same words a second time to a reader who
+                            // cannot see that it is a watermark.
+                            .accessibilityHidden(true)
+                            .allowsHitTesting(false)
+                    }
+                }
             } else if let text = task.description, !text.isEmpty {
                 MarkdownView(source: text)
             } else {
@@ -380,11 +444,13 @@ struct LogRow: View {
 /// their attributed strings.
 ///
 /// Two buttons rather than one whose label changes: pressing Done blurs the
-/// field, which commits and ends the edit before the mouse comes up. One button
-/// would keep its identity across that swap, complete the press, and fire the
-/// reading-state action — reopening the editor it just closed. The shared chrome
-/// hangs off the container, which does survive the swap, so the hover area is
-/// not torn down and rebuilt under a stationary cursor.
+/// editor, which commits and ends the edit before the mouse comes up, and one
+/// button would keep its identity across that, complete the press, and fire
+/// the reading-state action — reopening the editor it just closed.
+///
+/// Reading and editing are separate layouts, so this whole view is rebuilt on
+/// the way between them either way; the two branches are what make that
+/// harmless rather than what depends on it.
 private struct DescriptionFooter: View {
     @Environment(Workspace.self) private var workspace
     let isEditing: Bool
