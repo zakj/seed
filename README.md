@@ -46,7 +46,13 @@ it, so it keeps working for an agent whose `PATH` does not carry `sd` at all.
 A native SwiftUI app lives in `mac/`. It talks to the same `sd` binary and the
 same `.seed` directory, so it stays in sync with agents working in the terminal.
 
-Download `Seed-<version>-arm64.zip` from
+Install it with Homebrew:
+
+```sh
+brew install --cask zakj/tap/seed
+```
+
+Or download `Seed-<version>-arm64.zip` from
 [Releases](https://github.com/zakj/seed/releases) and drag `Seed.app` to
 `/Applications`. Or build it:
 
@@ -56,7 +62,8 @@ open mac/Seed.app
 ```
 
 The app is signed ad-hoc rather than with a Developer ID, so macOS quarantines
-the download and blocks the first launch. Clear the flag:
+a download and blocks the first launch. Homebrew clears the flag for you; for
+the zip, clear it yourself:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Seed.app

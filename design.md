@@ -310,6 +310,10 @@ code, no daemon.
 - The signature is ad-hoc, so macOS quarantines the download and blocks the
   first launch; the README carries the `xattr` override. Notarizing needs a
   Developer ID. The bundle ID is `net.zakj.seed`.
+- Homebrew avoids the override: the cask (`mac/seed.rb.in`) clears the flag on
+  install and upgrade. The release workflow's `homebrew` job publishes it to
+  `zakj/homebrew-tap` and needs the `HOMEBREW_TAP_DEPLOY_KEY` secret, the
+  private half of a write-enabled deploy key on the tap.
 - The icon is `icon.svg`, rendered to the checked-in `Seed.icns` by
   `icon.sh`. It is drawn full-bleed for macOS 26's squircle mask, so earlier
   versions show it square and oversized; the fix is an Icon Composer asset

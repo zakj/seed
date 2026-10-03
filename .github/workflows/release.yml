@@ -91,3 +91,38 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" sd-*.tar.gz Seed-*.zip --generate-notes
+
+  # Its own job so a failure here reruns without recreating the release. After
+  # the release, so the cask never points at a URL that is not there yet. A
+  # missing deploy key fails the push rather than skipping, since a cask left on
+  # the old version would go unnoticed.
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: zakj/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+      - name: Update the cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The exact name the cask's url builds, so a renamed zip fails here
+          # instead of in brew install.
+          zip="Seed-${TAG}-arm64.zip"
+          sha=$(gh release view "$TAG" --json assets \
+            --jq ".assets[] | select(.name == \"$zip\") | .digest | ltrimstr(\"sha256:\")")
+          test -n "$sha" || { echo "no $zip on the release"; exit 1; }
+          sed -e "s/@VERSION@/${TAG#v}/" -e "s/@SHA256@/$sha/" \
+            mac/seed.rb.in > tap/Casks/seed.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/seed.rb
+          git commit -m "seed ${TAG#v}"
+          git push
